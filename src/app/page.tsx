@@ -9,7 +9,9 @@ export default function Home() {
           이대건
         </h1>
         <p className="mt-3 text-base leading-7 text-zinc-600 dark:text-zinc-400">
-          안녕하세요! 바이브 코딩을 배우고 있는 대학생입니다.
+          움직임으로 이야기를 전하는 모션그래픽 디자이너입니다.
+          <br />
+          브랜드의 메시지를 감각적인 영상으로 만듭니다. 🎬
         </p>
       </section>
     </main>

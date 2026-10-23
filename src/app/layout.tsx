@@ -13,8 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "MyLink",
-  description: "MyLink Project",
+  title: "이대건 | Motion Graphic Designer",
+  description:
+    "움직임으로 이야기를 전하는 모션그래픽 디자이너 이대건의 포트폴리오 및 소셜 링크 허브",
 };
 
 export default function RootLayout({
@@ -24,7 +25,7 @@ export default function RootLayout({
 }>) {
   return (
     <html
-      lang="en"
+      lang="ko"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
       suppressHydrationWarning
     >

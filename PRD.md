@@ -52,7 +52,7 @@
 - 저장 형식은 기존과 같은 순수 `ProfileData` JSON이라 이전 데이터가 그대로 읽히며, 일부 값이 깨져 있으면 기본값으로 채워 복구합니다.
 - SSR과 첫 화면을 맞추기 위해 `skipHydration`으로 두고, 브라우저 마운트 후 `persist.rehydrate()`로 불러옵니다.
 - **링크는 Firestore로 마이그레이션했습니다 (2026-11-04).** `useLinksSync()`가 `onSnapshot`으로 목록을 구독하고, 쓰기는 `src/lib/links-repository.ts`를 거쳐 Firestore로 보냅니다. SDK의 지연 보정 덕분에 화면에는 즉시 반영됩니다.
-- 프로필 정보는 아직 localStorage에 있으며, M6에서 같은 방식으로 Firestore에 옮깁니다.
+- **프로필도 Firestore로 이전했습니다 (2026-11-04).** `useProfileStore`가 `users/{uid}/profile/main`을 구독하고, 로그인할 때 프로필이 없으면 초기값을 만듭니다 (§3.7). 브라우저 localStorage는 더 이상 쓰지 않으며, 예전에 저장된 값은 첫 로그인 계정의 초기값으로 한 번만 가져옵니다.
 
 ```mermaid
 flowchart LR
@@ -111,12 +111,26 @@ flowchart LR
   | 메인 `편집 모드` 버튼 | 숨김 | 표시 (로그아웃하면 자동으로 보기 모드) |
   | `/mypage` | "로그인 후 사용할 수 있어요" 안내 + 사용할 수 있는 기능 목록 + 로그인 버튼 | 계정 정보 패널 + 빠른 추가 폼 + 링크 목록 |
 
-  - 프로필 카드(이름·소개·스킬·쇼릴)는 로그인과 상관없이 보입니다 (아직 브라우저 localStorage 저장).
+  - 내 프로필 카드(이름·소개·직무·스킬·쇼릴)는 `users/{uid}/profile/main`에서 읽습니다. 로그아웃 상태의 홈은 소개 페이지만 보입니다.
 
 - **Firestore 데이터 구조:**
 
   ```text
-  users/{uid}                          사용자 문서 (로그인할 때마다 갱신)
+  users/{uid}/profile/main             공개 프로필 (누구나 읽기, 본인만 쓰기)
+    username     string     공유 URL용 (/{username}), 기본값 = 이메일 앞부분
+    displayName  string     표시 이름, 기본값 = Google 계정 이름
+    bio          string     소개글 (200자 이내)
+    role         string     직무 타이틀
+    skills       string[]   기술 스택 태그
+    showreel     map        대표 쇼릴 { enabled, title, subtitle, youtubeUrl, badge }
+    photoURL     string     Google 프로필 사진 (로그인할 때마다 최신으로)
+    createdAt / updatedAt  timestamp
+
+  usernames/{username}                 username → uid (누구나 읽기, 본인만 만들기·지우기)
+    uid          string     이 username을 쓰는 사용자
+    createdAt    timestamp
+
+  users/{uid}                          계정 정보 (본인만 읽기·쓰기, 로그인할 때마다 갱신)
     uid          string     Firebase Auth uid
     displayName  string     Google 계정 이름
     email        string     Google 계정 이메일
@@ -148,46 +162,32 @@ flowchart LR
   - 누르면 공용 링크를 같은 문서 ID로 `users/{uid}/links`에 **복사**합니다 (원본은 그대로, 여러 번 눌러도 중복 없음). 기록은 `users/{uid}.legacyLinksImportedAt`.
   - 예전의 localStorage → `users/anonymous` 자동 마이그레이션은 로그인 도입으로 없앴습니다.
   - "기본값 복원"은 프로필(이름·소개·스킬·쇼릴)만 되돌리고, Firestore 링크는 건드리지 않습니다.
-- **보안 규칙 (권장안, Firebase 콘솔에서 적용):** 본인 문서만 읽고 쓸 수 있게 합니다. 공용 경로는 가져오기용으로 읽기만 허용합니다.
+- **보안 규칙 (배포 완료, 2026-11-04):** `firestore.rules` 파일로 관리하고 `firebase deploy --only firestore:rules`로 배포합니다 (`firebase.json`, `.firebaserc`).
 
-  ```text
-  rules_version = '2';
-  service cloud.firestore {
-    match /databases/{database}/documents {
-      function isOwner(uid) {
-        return request.auth != null && request.auth.uid == uid;
-      }
-      function validLink(data) {
-        return data.keys().hasOnly(['title', 'url', 'subtitle', 'iconType', 'badge', 'variant', 'order', 'createdAt', 'updatedAt'])
-          && data.title is string && data.title.size() > 0 && data.title.size() <= 40
-          && data.url is string && data.url.size() <= 2048
-          && data.subtitle is string && data.subtitle.size() <= 60
-          && data.iconType in ['play', 'youtube', 'instagram', 'mail', 'film', 'globe', 'link', 'sparkles']
-          && data.variant in ['primary', 'glass']
-          && data.order is int
-          && data.updatedAt == request.time;
-      }
-      // 사용자 문서: 본인만
-      match /users/{uid} {
-        allow read, write: if isOwner(uid);
-        // 내 링크: 본인만, 필드 검사
-        match /links/{linkId} {
-          allow read, delete: if isOwner(uid);
-          allow create: if isOwner(uid) && validLink(request.resource.data)
-            && request.resource.data.createdAt == request.time;
-          allow update: if isOwner(uid) && validLink(request.resource.data)
-            && request.resource.data.createdAt == resource.data.createdAt;
-        }
-      }
-      // 로그인 전 공용 링크: 로그인한 사용자가 가져오기용으로 읽기만
-      match /users/anonymous/links/{linkId} {
-        allow read: if request.auth != null;
-        allow write: if false;
-      }
-    }
-  }
-  ```
-  - 이전 공용 링크를 가져올 때는 새 문서의 `createdAt`·`updatedAt`을 서버 시각으로 쓰므로 위 규칙을 통과합니다.
+  | 경로 | 읽기 | 쓰기 |
+  | :--- | :--- | :--- |
+  | `users/{userId}/links/{linkId}` | 누구나 (로그인 불필요) | 로그인 + `request.auth.uid == userId` (+ 제목·주소 검사) |
+  | `users/{userId}/profile/{docId}` | 누구나 | 로그인 + 본인, `docId == 'main'`, username 형식·길이 검사, `usernames/{username}`이 본인 것 (`getAfter`) |
+  | `usernames/{username}` | 누구나 | 만들기: 로그인 + `uid`가 본인 + 형식 검사 / 지우기: 본인 것만 / 수정: 금지 |
+  | `users/{userId}` (계정 정보: 이메일 등) | 본인만 | 본인만 |
+  | `users/anonymous/links` (이전 공용 링크) | 누구나 | 금지 |
+
+  - 슬라이드 예시의 `match /users/{userId}/profile`은 컬렉션 경로라 어떤 문서에도 맞지 않아서, `match /users/{userId}/profile/{docId}`로 작성했습니다.
+  - 이메일 같은 개인 정보는 공개 프로필에 두지 않고 본인만 읽는 `users/{uid}`에 둡니다.
+- **보안 규칙 테스트:** `node scripts/test-firestore-rules.mjs` — 로그인하지 않은 방문자 시점에서 Firestore REST API로 8가지를 확인합니다 (배포 후 8/8 통과).
+
+  | 시나리오 | 기대 | 결과 |
+  | :--- | :---: | :---: |
+  | 공개 프로필 읽기 `users/{uid}/profile/main` | 허용 | ✅ |
+  | 링크 목록 읽기 `users/{uid}/links` | 허용 | ✅ |
+  | username 조회 `usernames/{username}` | 허용 | ✅ |
+  | 계정 정보 읽기 `users/{uid}` | 거부 | ✅ 403 |
+  | 링크 쓰기 (로그인 안 함) | 거부 | ✅ 403 |
+  | 프로필 쓰기 (로그인 안 함) | 거부 | ✅ 403 |
+  | username 차지 (로그인 안 함) | 거부 | ✅ 403 |
+  | 공용 링크 쓰기 | 거부 | ✅ 403 |
+
+  - 로그인한 본인 쓰기 허용·남의 데이터 쓰기 거부는 앱에서 로그인 후 확인합니다 (로컬 에뮬레이터는 Java가 없어 사용하지 않음).
 - **Next.js 참고:** `NEXT_PUBLIC_` 값은 `next build` 시점에 번들에 고정됩니다. 값을 바꾸면 개발 서버 재시작 또는 재빌드가 필요합니다.
 
 ---
@@ -278,6 +278,33 @@ flowchart LR
 - **저장 범위:** 목록은 Firestore가 원본이라 **새로고침하거나 다른 기기에서 열어도 유지**됩니다. 메인 카드와 같은 컬렉션이라 여기서 바꾸면 메인 카드에 바로 반영됩니다.
   - 참고: M4(7주차) 체크리스트의 "새로고침 → 사라짐 확인"은 메모리 상태였던 당시 단계의 테스트이며, M5에서 Firestore로 옮기면서 "새로고침 → 유지됨"이 기대 결과로 바뀌었습니다.
 
+
+### 3.7 프로필 수정 (마이페이지 상단, `src/components/profile-form.tsx`)
+- **필드 3개 + 저장 버튼:** `username`(공유 URL용), `displayName`(표시 이름), `bio`(소개글). 현재 값을 채워서 보여주고 바로 고칠 수 있습니다.
+- **로그인 시 초기값 자동 설정** (`ensureProfile`, 트랜잭션): 프로필이 없으면 만듭니다.
+  - `username` = 이메일 앞부분 (규칙에 맞게 소문자·`-`로 보정, 예: `Lee.Dae-Geon@…` → `lee-dae-geon`, 너무 짧으면 `-link`를 붙임). 이미 쓰는 사람이 있으면 `cleangabby2`, `cleangabby3` … 순서로 비어 있는 것을 고릅니다.
+  - `displayName` = Google 계정 이름 (없으면 username)
+  - 이 브라우저에 로그인 전에 저장해 둔 소개·직무·스킬·쇼릴이 있으면 첫 로그인 계정이 한 번만 가져갑니다.
+- **username 규칙:** 영문 소문자·숫자·`_`·`-`, 3~20자, 처음과 끝은 영문/숫자. 사이트 경로와 겹치는 이름(`mypage`, `api`, `admin`, `login` 등)은 사용할 수 없습니다.
+- **저장:** `users/{uid}/profile/main`에 기록합니다. username이 바뀌면 같은 트랜잭션 안에서 `usernames/{새 이름}`이 비어 있는지 **중복 체크**하고, 비어 있으면 새 이름을 차지하고 예전 이름을 놓아줍니다. 이미 다른 사람이 쓰면 username 칸 아래에 "이미 사용 중인 username이에요" 오류를 띄웁니다.
+- **알림:** 저장에 성공하면 Sonner로 "프로필을 저장했어요" + 내 공개 페이지 주소. 저장 중에는 로딩 오버레이.
+- 폼 위에는 내 공개 페이지 주소(`{도메인}/{username}`)와 새 탭 열기·복사 버튼을 둡니다. 바꾼 내용이 없으면 저장 버튼이 비활성화되고, `되돌리기`로 원래 값으로 돌아갑니다.
+- 결과: **username을 설정하면 `/{username}` 주소가 바로 준비됩니다.**
+- 편집 모드(메인)는 직무·스킬·쇼릴만 다루고 입력이 멈추면 600ms 뒤 자동 저장합니다. 이름·소개·username은 마이페이지에서 고치도록 안내합니다.
+
+### 3.8 공개 개인 페이지 (`/[username]`, `src/app/[username]/page.tsx`)
+- **동작 순서:**
+  1. URL에서 `username`을 추출합니다 (소문자로 맞추고 형식이 틀리면 바로 404).
+  2. Firestore `usernames/{username}`에서 `userId`를 찾습니다 (서버에서 REST로 조회, username → userId 변환).
+  3. 찾은 userId로 `users/{userId}/profile/main`과 `users/{userId}/links`를 조회합니다 (브라우저에서 실시간 구독).
+  4. 화면에 프로필 정보와 링크 리스트를 표시합니다 — 상단 프로필 카드(사진·이름·@username·직무·소개글·스킬), 하단 쇼릴 + 링크 리스트(버튼 형태, 카드 순서).
+  5. username을 찾지 못하면 404 페이지(`app/not-found.tsx`)를 보여줍니다. 검색엔진 색인 제외(`noindex`).
+- **로그인 불필요:** 누구나 볼 수 있습니다. 본인이 보면 "방문자에게 보이는 내 공개 페이지예요" 안내와 `내 페이지 편집` 버튼이 보이고, 다른 사람에게는 `나도 MyLink 만들기` 링크가 보입니다.
+- **같은 화면 구성:** 내 링크 페이지(홈)와 공개 페이지는 같은 카드 컴포넌트(`ProfileCardView`)를 써서 방문자가 보는 모습과 내가 보는 모습이 같습니다.
+- 탭 제목: `{displayName} (@{username}) | MyLink`.
+- Next.js 16 `cacheComponents`에 맞춰 동적 params와 `usePathname`(헤더 메뉴)은 `<Suspense>` 안에서 읽습니다.
+- 결과: **`/cleangabby`로 접속하면 그 사용자의 링크 페이지가 보입니다.**
+- 프로필 메뉴의 `링크 주소 복사`는 이제 `{도메인}/{username}`을 복사하고, `내 공개 페이지`로 바로 갈 수 있습니다.
 ---
 
 ## 4. 데이터 스키마 명세 (Data Model)
@@ -757,7 +784,7 @@ flowchart TD
 | **M3. 디자인 시스템 정비** | 완료 | ColorPallete 6색 토큰, 커서 반응형 번짐 림라이트, AE식 비대칭 이징 토큰 | Design.md 규격과 화면 일치 |
 | **M4. 링크 추가 기능 (Create) — 7주차** | 완료 (2026-11-04) | `/mypage` 페이지, 링크 추가 폼(제목·주소·버튼), 추가 시 목록 반영, 입력 칸 자동 비우기, 빈 칸 검증 / Zustand 상태관리, Zod + React Hook Form 유효성 검사 도입 | 체크리스트 6개 항목 통과 (§8.1) |
 | **M5. Firestore 링크 CRUD** | 완료 (2026-11-04) | Create·Read(실시간 구독, createdAt 최신순)·Update·Delete·순서 변경을 Firestore `users/anonymous/links`로 이전, localStorage 링크 1회 마이그레이션, **링크 관리를 `/mypage`로 일원화**(편집 모드는 프로필·쇼릴 전용) | 새로고침·다른 기기에서도 목록 유지, `/mypage` 변경이 메인 카드에 즉시 반영 |
-| **M6. Phase 2 — 로그인·개인화** | 진행 중 | ✅ Firebase SDK·환경 변수·Analytics (2026-11-04) / ✅ Google 소셜 로그인(헤더), 로그인 상태별 화면, 링크 경로 `users/{uid}/links` 개인화, `users/{uid}` 사용자 정보 표시, 이전 공용 링크 가져오기 (2026-11-04) / ⬜ 보안 규칙 적용(§2.2), 프로필 Firestore 이전, 방문자용 공개 페이지, 배포 | 계정마다 링크가 분리되고, 다른 기기에서 로그인해도 같은 링크가 보임 |
+| **M6. Phase 2 — 로그인·개인화** | 완료 (2026-11-04) | Firebase SDK·Analytics / Google 소셜 로그인, 로그인 상태별 화면, `users/{uid}/links` 개인화 / 프로필 Firestore 이전(`users/{uid}/profile/main`), 프로필 수정·username 중복 체크, 공개 페이지 `/{username}`·404, 보안 규칙 배포·테스트 | 다른 기기·다른 사람도 `/{username}`에서 같은 링크를 보고, 쓰기는 본인만 가능 |
 
 ### 8.1 M4 체크리스트 (7주차 실습)
 - [x] `/mypage` 페이지 만들기 — `src/app/mypage/page.tsx`
@@ -766,3 +793,8 @@ flowchart TD
 - [x] 입력 칸 자동으로 비우기 — 성공 시 `reset()` + 제목 칸 포커스
 - [x] 빈 칸 검증 추가하기 — `quickLinkSchema` (Zod) + React Hook Form
 - [x] 테스트: 링크 추가 → 새로고침 → 사라짐 확인 — 메모리 상태라 새로고침 시 목록 0개 (브라우저에서 확인)
+
+### 8.2 8주차 체크리스트 (개인화·공개 페이지·보안)
+- [x] 마이페이지에 프로필 수정 기능 추가 — username·displayName·bio + 저장, 로그인 시 초기값 자동 설정, username 중복 체크, 저장 성공 알림 (§3.7)
+- [x] `/[username]` 페이지 생성 — URL에서 username 추출 → userId 찾기 → 프로필·링크 표시, 없으면 404 (§3.8)
+- [x] Security Rules 설정 + 테스트 — 읽기 누구나, 쓰기 본인만, `firestore.rules` 배포, `scripts/test-firestore-rules.mjs` 8/8 통과 (§2.2)

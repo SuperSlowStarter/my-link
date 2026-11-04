@@ -1,0 +1,72 @@
+rules_version = '2';
+
+// MyLink Firestore Security Rules
+// - 읽기: 공개 프로필·링크·username은 누구나 (로그인 불필요)
+// - 쓰기: 로그인 필수 + 로그인한 uid가 경로의 userId와 같을 때만 (본인 데이터만)
+// - 계정 정보(users/{userId} 문서: 이메일 등)는 본인만 읽고 쓴다
+// ※ 슬라이드의 users/{userId}/profile 은 컬렉션 경로라 문서가 될 수 없어서,
+//    프로필 문서는 users/{userId}/profile/main 에 둔다 (match .../profile/{docId}).
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    // 계정 정보 (이메일·마지막 로그인 등) — 본인만
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+
+      // 링크 — 읽기 누구나, 쓰기 본인만
+      match /links/{linkId} {
+        allow read: if true;
+        allow create, update: if isOwner(userId) && validLink(request.resource.data);
+        allow delete: if isOwner(userId);
+      }
+
+      // 공개 프로필 — 읽기 누구나, 쓰기 본인만
+      match /profile/{docId} {
+        allow read: if true;
+        allow create, update: if isOwner(userId)
+          && docId == 'main'
+          && validProfile(request.resource.data)
+          // profile.username은 usernames/{username}에서 본인 것으로 잡혀 있어야 한다 (같은 트랜잭션 반영 후 기준)
+          && getAfter(/databases/$(database)/documents/usernames/$(request.resource.data.username)).data.uid == request.auth.uid;
+        allow delete: if isOwner(userId);
+      }
+    }
+
+    // username → uid (중복 방지 + /{username} 주소로 사용자 찾기)
+    match /usernames/{username} {
+      allow read: if true;
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && username.matches('^[a-z0-9][a-z0-9_-]{1,18}[a-z0-9]$');
+      allow delete: if signedIn() && resource.data.uid == request.auth.uid;
+      allow update: if false;
+    }
+
+    // 로그인 기능 전 공용 링크 — 가져오기용 읽기만
+    match /users/anonymous/links/{linkId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    function validLink(data) {
+      return data.title is string && data.title.size() > 0 && data.title.size() <= 40
+        && data.url is string && data.url.size() <= 2048
+        && (!('subtitle' in data) || (data.subtitle is string && data.subtitle.size() <= 60));
+    }
+
+    function validProfile(data) {
+      return data.username is string
+        && data.username.matches('^[a-z0-9][a-z0-9_-]{1,18}[a-z0-9]$')
+        && data.displayName is string && data.displayName.size() > 0 && data.displayName.size() <= 30
+        && data.bio is string && data.bio.size() <= 200;
+    }
+  }
+}

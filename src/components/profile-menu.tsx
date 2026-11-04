@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { Copy, ExternalLink, House, ListPlus, LogOut, Settings2, UserRound } from "lucide-react";
 import { useAuthStore } from "@/store/auth-store";
 import { useLinksStore } from "@/store/links-store";
+import { useProfileStore } from "@/store/profile-store";
 import { UserAvatar } from "@/components/user-avatar";
 
 const joinedFormat = new Intl.DateTimeFormat("ko-KR", {
@@ -43,9 +44,9 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
-/** 내 마이링크 주소 복사 → Sonner 알림 */
-async function copyMyLinkAddress() {
-  const url = `${window.location.origin}/`;
+/** 내 공개 페이지 주소(/{username}) 복사 → Sonner 알림 */
+async function copyMyLinkAddress(username: string) {
+  const url = `${window.location.origin}/${username}`;
   if (await copyText(url)) {
     toast.success("링크 주소를 복사했어요", { description: url });
   } else {
@@ -121,18 +122,21 @@ export function ProfileMenu() {
     router.push("/");
   };
   const linkCount = useLinksStore((state) => (state.status === "ready" ? state.links.length : null));
+  // 공개 프로필 (users/{uid}/profile/main): username·displayName·사진
+  const publicProfile = useProfileStore((state) => state.profile);
 
   if (!user) return null;
 
   // 화면에는 Firestore users/{uid} 문서 값을 우선 보여주고, 아직 없으면 Auth 값으로 채운다
-  const name = profile?.displayName || user.displayName || "사용자";
+  const username = publicProfile?.username ?? "";
+  const name = publicProfile?.displayName || user.displayName || "사용자";
   const email = profile?.email || user.email;
-  const photoURL = profile?.photoURL || user.photoURL;
+  const photoURL = publicProfile?.photoURL || profile?.photoURL || user.photoURL;
 
   return (
     <Menu.Root>
       <Menu.Trigger
-        aria-label={`계정 메뉴 열기 (@${name})`}
+        aria-label={`계정 메뉴 열기 (${username ? `@${username}` : name})`}
         className="group relative flex h-9 w-9 cursor-pointer items-center justify-center rounded-full p-0.5 outline-none ring-1 ring-winter/20 transition-[box-shadow,transform] duration-200 ease-punch hover:ring-hearth/60 focus-visible:ring-2 focus-visible:ring-hearth data-[popup-open]:ring-2 data-[popup-open]:ring-hearth active:scale-95"
       >
         <UserAvatar photoURL={photoURL} size={32} />
@@ -145,8 +149,8 @@ export function ProfileMenu() {
             <div className="flex items-center gap-3 px-2.5 pt-2 pb-2.5">
               <UserAvatar photoURL={photoURL} size={40} />
               <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-winter">@{name}</p>
-                {email && <p className="truncate text-[11px] text-winter/55">{email}</p>}
+                <p className="truncate text-sm font-semibold text-winter">{name}</p>
+                <p className="truncate font-mono text-[11px] text-winter/55">{username ? `@${username}` : email}</p>
               </div>
             </div>
             <div className="mx-2.5 mb-1 flex items-center gap-2 font-mono text-[10px] text-winter/45">
@@ -160,12 +164,10 @@ export function ProfileMenu() {
             </div>
 
             {/* 공유: 내 마이링크 주소 복사 (복사되면 Sonner 알림) */}
-            <Menu.Item className={ITEM} onClick={() => void copyMyLinkAddress()}>
+            <Menu.Item className={ITEM} disabled={!username} onClick={() => void copyMyLinkAddress(username)}>
               <ItemIcon icon={Copy} />
               <span className="flex-1">링크 주소 복사</span>
-              <span className="font-mono text-[10px] text-winter/35">
-                {typeof window !== "undefined" ? window.location.host : ""}
-              </span>
+              <span className="max-w-[96px] truncate font-mono text-[10px] text-winter/35">/{username}</span>
             </Menu.Item>
 
             <Menu.Separator className={SEPARATOR} />
@@ -191,8 +193,13 @@ export function ProfileMenu() {
               >
                 내 링크 관리
               </NavItem>
-              <NavItem href="/mypage#account" icon={UserRound}>
-                계정 정보
+              {username && (
+                <NavItem href={`/${username}`} icon={ExternalLink}>
+                  내 공개 페이지
+                </NavItem>
+              )}
+              <NavItem href="/mypage#profile" icon={UserRound}>
+                프로필 수정
               </NavItem>
             </Menu.Group>
 

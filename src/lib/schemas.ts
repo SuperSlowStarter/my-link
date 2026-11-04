@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { extractYoutubeVideoId, type LinkIconType } from "@/data/links";
+import { RESERVED_USERNAMES, USERNAME_MAX, USERNAME_MIN, USERNAME_PATTERN } from "@/lib/username";
 
 /**
  * 편집 모드 유효성 검사 스키마 (Zod + React Hook Form)
@@ -74,20 +75,30 @@ export type QuickLinkValues = z.infer<typeof quickLinkSchema>;
 /* ------------------------------------------------------------------ */
 /* 프로필 기본 정보                                                     */
 /* ------------------------------------------------------------------ */
-export const profileInfoSchema = z.object({
-  name: z
+/** 마이페이지 프로필 수정 (username · displayName · bio) */
+export const profileBasicsSchema = z.object({
+  username: z
     .string()
     .trim()
-    .min(1, "이름을 입력해주세요.")
-    .max(20, "이름은 20자 이내로 입력해주세요."),
-  role: z
+    .toLowerCase()
+    .min(USERNAME_MIN, `username은 ${USERNAME_MIN}자 이상이에요.`)
+    .max(USERNAME_MAX, `username은 ${USERNAME_MAX}자 이내예요.`)
+    .regex(USERNAME_PATTERN, "영문 소문자·숫자·_·-만 쓸 수 있고, 처음과 끝은 영문이나 숫자여야 해요.")
+    .refine((value) => !RESERVED_USERNAMES.has(value), "사이트에서 쓰는 이름이라 사용할 수 없어요."),
+  displayName: z
     .string()
     .trim()
-    .min(1, "직무 타이틀을 입력해주세요.")
-    .max(40, "직무 타이틀은 40자 이내로 입력해주세요."),
+    .min(1, "표시 이름을 입력해주세요.")
+    .max(30, "표시 이름은 30자 이내로 입력해주세요."),
   bio: z.string().trim().max(200, "소개글은 200자 이내로 입력해주세요."),
 });
-export type ProfileInfoValues = z.infer<typeof profileInfoSchema>;
+export type ProfileBasicsValues = z.infer<typeof profileBasicsSchema>;
+
+/** 편집 모드: 직무 타이틀 */
+export const profileRoleSchema = z.object({
+  role: z.string().trim().max(40, "직무 타이틀은 40자 이내로 입력해주세요."),
+});
+export type ProfileRoleValues = z.infer<typeof profileRoleSchema>;
 
 /* ------------------------------------------------------------------ */
 /* 대표 쇼릴                                                            */

@@ -1,143 +1,199 @@
 "use client";
 
+import { useEffect } from "react";
 import { create } from "zustand";
-import { persist, type PersistStorage } from "zustand/middleware";
+import type { ShowreelConfig } from "@/data/links";
+import { getFirebaseAuth } from "@/lib/firebase";
+import { describeFirestoreError } from "@/lib/links-repository";
 import {
-  DEFAULT_PROFILE_DATA,
-  STORAGE_KEY,
-  type ProfileData,
-  type ShowreelConfig,
-} from "@/data/links";
+  ensureProfile,
+  saveProfileBasics,
+  subscribeProfile,
+  updateProfileDetails,
+  UsernameTakenError,
+  type ProfileBasics,
+  type ProfileDetails,
+  type UserProfile,
+} from "@/lib/profile-repository";
+import { useAuthStore } from "@/store/auth-store";
+import { beginLoading } from "@/store/loading-store";
 
 /**
- * 메인 허브 프로필 상태 (Zustand + persist)
- * - Phase 1: localStorage(`mylink_state_v1`)에 저장한다.
- * - 저장 형식은 기존과 같은 순수 ProfileData JSON이라, 이전에 저장된 데이터를 그대로 읽는다.
- * - Phase 2(DB)로 옮길 때는 아래 profileStorage만 교체하면 된다.
- * - 링크는 Firestore로 옮겼다 (src/store/links-store.ts). 여기 남은 profile.links는
- *   최초 1회 마이그레이션 때 이 브라우저의 기존 링크를 읽는 용도로만 쓴다.
+ * 내 공개 프로필 상태 (Zustand) — 원본은 Firestore users/{uid}/profile/main
+ * - 로그인하면 프로필이 없을 때 초기값을 만들고(ensureProfile), 실시간 구독한다.
+ * - 마이페이지 저장(username·displayName·bio)은 버튼으로, 편집 모드(직무·스킬·쇼릴)는 입력 후 잠시 뒤 자동 저장.
  */
+type ProfileStatus = "idle" | "signedOut" | "loading" | "ready" | "error";
 
-type ProfileUpdater = ProfileData | ((prev: ProfileData) => ProfileData);
+export type SaveBasicsResult = { ok: true } | { ok: false; field?: "username"; message: string };
 
 interface ProfileState {
-  profile: ProfileData;
-  /** 마지막으로 저장한 시각 (저장 알림 표시용) */
+  uid: string | null;
+  profile: UserProfile | null;
+  status: ProfileStatus;
+  error: string | null;
+  /** 마지막 자동 저장 시각 (저장 알림용) */
   savedAt: number | null;
-  /** 마지막 저장 사유 */
-  savedReason: "save" | "reset" | null;
-  /** 기본값 복원 횟수. 편집 폼을 다시 마운트해 입력값을 새로 채우는 데 쓴다 */
-  resetVersion: number;
 
-  updateProfile: (updater: ProfileUpdater) => void;
+  saveBasics: (basics: ProfileBasics) => Promise<SaveBasicsResult>;
+  /** 편집 모드 자동 저장 (연속 입력은 묶어서 한 번에) */
+  updateDetails: (details: ProfileDetails) => void;
   updateShowreel: (patch: Partial<ShowreelConfig>) => void;
-
   addSkill: (skill: string) => void;
   removeSkill: (skill: string) => void;
-
-  resetProfile: () => void;
 }
 
-/** 저장값이 일부 깨져 있어도 기본값으로 채워서 복구한다 */
-function sanitizeProfile(parsed: Partial<ProfileData> | null | undefined): ProfileData {
-  if (!parsed || typeof parsed !== "object") return DEFAULT_PROFILE_DATA;
-  const pick = <K extends keyof ProfileData>(key: K, check: (v: unknown) => boolean) =>
-    check(parsed[key]) ? (parsed[key] as ProfileData[K]) : DEFAULT_PROFILE_DATA[key];
-  const isString = (v: unknown) => typeof v === "string";
+/* 편집 모드 자동 저장: 입력이 멈추고 600ms 뒤에 모아서 저장 */
+const AUTOSAVE_DELAY_MS = 600;
+let pendingDetails: ProfileDetails = {};
+let autosaveTimer: ReturnType<typeof setTimeout> | null = null;
+
+export const useProfileStore = create<ProfileState>()((set, get) => {
+  function flushDetails() {
+    autosaveTimer = null;
+    const uid = get().uid;
+    const details = pendingDetails;
+    pendingDetails = {};
+    if (!uid || Object.keys(details).length === 0) return;
+    updateProfileDetails(uid, details)
+      .then(() => set({ savedAt: Date.now(), error: null }))
+      .catch((error: unknown) => set({ error: describeFirestoreError(error) }));
+  }
+
+  function queueDetails(details: ProfileDetails) {
+    const current = get().profile;
+    if (!current) return;
+    // 화면에는 바로 반영 (Firestore 응답을 기다리지 않음)
+    set({ profile: { ...current, ...details } });
+    pendingDetails = { ...pendingDetails, ...details };
+    if (autosaveTimer) clearTimeout(autosaveTimer);
+    autosaveTimer = setTimeout(flushDetails, AUTOSAVE_DELAY_MS);
+  }
 
   return {
-    name: pick("name", isString),
-    role: pick("role", isString),
-    bio: pick("bio", isString),
-    skills: pick("skills", Array.isArray),
-    showreel:
-      parsed.showreel && typeof parsed.showreel === "object"
-        ? { ...DEFAULT_PROFILE_DATA.showreel, ...parsed.showreel }
-        : DEFAULT_PROFILE_DATA.showreel,
-    links: pick("links", Array.isArray),
+    uid: null,
+    profile: null,
+    status: "idle",
+    error: null,
+    savedAt: null,
+
+    saveBasics: async (basics) => {
+      const uid = get().uid;
+      if (!uid) return { ok: false, message: "로그인이 필요해요." };
+      const endLoading = beginLoading("프로필 저장 중");
+      try {
+        await saveProfileBasics(uid, basics);
+        return { ok: true };
+      } catch (error) {
+        if (error instanceof UsernameTakenError) {
+          return { ok: false, field: "username", message: "이미 사용 중인 username이에요. 다른 이름을 입력해주세요." };
+        }
+        if (process.env.NODE_ENV !== "production") console.error("[firestore] 프로필 저장 실패", error);
+        return { ok: false, message: describeFirestoreError(error) };
+      } finally {
+        endLoading();
+      }
+    },
+
+    updateDetails: (details) => queueDetails(details),
+
+    updateShowreel: (patch) => {
+      const current = get().profile;
+      if (!current) return;
+      queueDetails({ showreel: { ...current.showreel, ...patch } });
+    },
+
+    addSkill: (skill) => {
+      const current = get().profile;
+      if (!current) return;
+      queueDetails({ skills: [...current.skills, skill] });
+    },
+
+    removeSkill: (skill) => {
+      const current = get().profile;
+      if (!current) return;
+      queueDetails({ skills: current.skills.filter((item) => item !== skill) });
+    },
+  };
+});
+
+/* ------------------------------------------------------------------ */
+/* 동기화: 로그인한 uid가 바뀔 때마다 users/{uid}/profile/main 구독      */
+/* ------------------------------------------------------------------ */
+let subscribers = 0;
+let stopProfile: (() => void) | null = null;
+let stopAuthWatch: (() => void) | null = null;
+let endInitialLoading: (() => void) | null = null;
+const finishInitialLoading = () => {
+  endInitialLoading?.();
+  endInitialLoading = null;
+};
+
+function attach(uid: string | null) {
+  if (useProfileStore.getState().uid === uid && stopProfile) return;
+  stopProfile?.();
+  stopProfile = null;
+  finishInitialLoading();
+
+  if (!uid) {
+    useProfileStore.setState({ uid: null, profile: null, status: "signedOut" });
+    return;
+  }
+
+  useProfileStore.setState({ uid, profile: null, status: "loading", error: null });
+  endInitialLoading = beginLoading("프로필 불러오는 중");
+
+  const firebaseUser = getFirebaseAuth().currentUser;
+  // 프로필이 없으면 초기값 생성 (username = 이메일 앞부분, displayName = Google 이름)
+  const ready = firebaseUser ? ensureProfile(firebaseUser) : Promise.resolve();
+  ready
+    .catch((error: unknown) => {
+      if (process.env.NODE_ENV !== "production") console.warn("[firestore] 프로필 초기화 실패", error);
+    })
+    .finally(() => {
+      if (useProfileStore.getState().uid !== uid) return;
+      stopProfile = subscribeProfile(
+        uid,
+        (profile) => {
+          finishInitialLoading();
+          useProfileStore.setState({ profile, status: profile ? "ready" : "loading" });
+        },
+        (error) => {
+          finishInitialLoading();
+          useProfileStore.setState({ status: "error", error: describeFirestoreError(error) });
+        }
+      );
+    });
+}
+
+function syncWithAuth() {
+  const { status, user } = useAuthStore.getState();
+  if (status === "loading") return;
+  attach(status === "signedIn" && user ? user.uid : null);
+}
+
+function startProfileSync() {
+  subscribers += 1;
+  if (subscribers === 1) {
+    syncWithAuth();
+    stopAuthWatch = useAuthStore.subscribe((state, prev) => {
+      if (state.status !== prev.status || state.user?.uid !== prev.user?.uid) syncWithAuth();
+    });
+  }
+  return () => {
+    subscribers -= 1;
+    if (subscribers === 0) {
+      stopAuthWatch?.();
+      stopAuthWatch = null;
+      stopProfile?.();
+      stopProfile = null;
+      finishInitialLoading();
+      useProfileStore.setState({ uid: null, profile: null, status: "idle" });
+    }
   };
 }
 
-type PersistedSlice = Pick<ProfileState, "profile">;
-
-/** 기존 저장 형식(ProfileData 그대로)을 유지하는 커스텀 스토리지 */
-const profileStorage: PersistStorage<PersistedSlice> = {
-  getItem: (name) => {
-    try {
-      const raw = window.localStorage.getItem(name);
-      if (!raw) return null;
-      return { state: { profile: sanitizeProfile(JSON.parse(raw)) }, version: 1 };
-    } catch {
-      return null;
-    }
-  },
-  setItem: (name, value) => {
-    try {
-      window.localStorage.setItem(name, JSON.stringify(value.state.profile));
-    } catch {
-      // 용량 초과·시크릿 모드 등은 무시하고 화면 상태만 유지한다
-    }
-  },
-  removeItem: (name) => {
-    try {
-      window.localStorage.removeItem(name);
-    } catch {
-      // 무시
-    }
-  },
-};
-
-export const useProfileStore = create<ProfileState>()(
-  persist(
-    (set, get) => {
-      const commit = (next: ProfileData) =>
-        set({ profile: next, savedAt: Date.now(), savedReason: "save" });
-
-      return {
-        profile: DEFAULT_PROFILE_DATA,
-        savedAt: null,
-        savedReason: null,
-        resetVersion: 0,
-
-        updateProfile: (updater) => {
-          const prev = get().profile;
-          commit(typeof updater === "function" ? updater(prev) : updater);
-        },
-
-        updateShowreel: (patch) => {
-          const prev = get().profile;
-          commit({ ...prev, showreel: { ...prev.showreel, ...patch } });
-        },
-
-        addSkill: (skill) => {
-          const prev = get().profile;
-          commit({ ...prev, skills: [...prev.skills, skill] });
-        },
-
-        removeSkill: (skill) => {
-          const prev = get().profile;
-          commit({ ...prev, skills: prev.skills.filter((item) => item !== skill) });
-        },
-
-        resetProfile: () => {
-          useProfileStore.persist.clearStorage();
-          set({
-            profile: DEFAULT_PROFILE_DATA,
-            savedAt: Date.now(),
-            savedReason: "reset",
-            resetVersion: get().resetVersion + 1,
-          });
-        },
-      };
-    },
-    {
-      name: STORAGE_KEY,
-      // profileStorage.getItem이 돌려주는 version과 같아야 저장값을 그대로 쓴다 (다르면 migrate가 필요)
-      version: 1,
-      storage: profileStorage,
-      partialize: (state) => ({ profile: state.profile }),
-      // SSR 결과(기본값)와 첫 화면을 맞추기 위해, 브라우저에서 마운트된 뒤 직접 불러온다
-      skipHydration: true,
-    }
-  )
-);
+/** 내 프로필을 쓰는 곳(헤더 메뉴·내 링크 페이지·마이페이지)에서 호출한다 */
+export function useProfileSync() {
+  useEffect(() => startProfileSync(), []);
+}

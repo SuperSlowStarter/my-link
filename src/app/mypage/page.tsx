@@ -23,7 +23,8 @@ import { quickLinkSchema, type QuickLinkValues } from "@/lib/schemas";
 import { useRimLight } from "@/lib/use-rim-light";
 import { useAuthStore } from "@/store/auth-store";
 import { useLinksStore, useLinksSync } from "@/store/links-store";
-import { AccountPanel } from "@/components/account-panel";
+import { ProfileForm } from "@/components/profile-form";
+import { useProfileStore } from "@/store/profile-store";
 import { SiteHeader } from "@/components/site-header";
 import { LoginRequired } from "@/components/login-required";
 import { AmbientBackground } from "@/components/ambient-background";
@@ -63,6 +64,7 @@ export default function MyPage() {
   // 로그인 상태 (Firebase Auth · Google)
   const authStatus = useAuthStore((state) => state.status);
   const isSignedIn = authStatus === "signedIn";
+  const myProfile = useProfileStore((state) => state.profile);
 
   // 로그아웃 상태로 들어오면 소개 페이지(/)로 보낸다
   const router = useRouter();
@@ -193,8 +195,16 @@ export default function MyPage() {
           />
         ) : (
           <>
-        {/* 계정 정보: Firestore users/{uid} 문서 */}
-        <AccountPanel />
+        {/* 상단: 프로필 수정 (username·displayName·bio → users/{uid}/profile/main) */}
+        {myProfile ? (
+          <ProfileForm key={myProfile.uid} profile={myProfile} />
+        ) : (
+          <div aria-busy="true" className="h-[340px] animate-pulse rounded-[0.75rem] bg-winter/[0.06]" />
+        )}
+
+        <div className="relative z-10 h-px w-full bg-gradient-to-r from-transparent via-winter/18 to-transparent" />
+
+        <h2 className="relative z-10 -mb-3 text-sm font-semibold text-winter">링크 추가</h2>
 
         {/* 중간: 빠른 추가 폼 (입력 칸 세로 배치) */}
         <form

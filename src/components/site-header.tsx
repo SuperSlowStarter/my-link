@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { Suspense, useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { House, ListPlus } from "lucide-react";
@@ -44,7 +44,6 @@ export function LogoMark({ className = "h-7 w-7" }: { className?: string }) {
 }
 
 export function SiteHeader({ actions }: { actions?: ReactNode }) {
-  const pathname = usePathname();
   // 메뉴(홈·내 링크 관리)는 로그인한 사용자에게만 보인다
   const isSignedIn = useAuthStore((state) => state.status === "signedIn");
   const [scrolled, setScrolled] = useState(false);
@@ -81,32 +80,11 @@ export function SiteHeader({ actions }: { actions?: ReactNode }) {
         </Link>
 
         {/* 가운데: 내비게이션 (현재 페이지에 Hearth 밑줄) */}
+        {/* usePathname은 동적 경로(/[username])에서 런타임 데이터라 Suspense 안에서 읽는다 (cacheComponents) */}
         {isSignedIn && (
-        <nav aria-label="주 메뉴" className="flex h-full items-stretch gap-1">
-          {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
-            const active = pathname === href;
-            return (
-              <Link
-                key={href}
-                href={href}
-                aria-current={active ? "page" : undefined}
-                aria-label={label}
-                className={`relative flex items-center gap-1.5 px-2.5 text-[13px] transition-colors duration-200 ease-punch outline-none focus-visible:text-winter ${
-                  active ? "font-medium text-winter" : "text-winter/60 hover:text-winter"
-                }`}
-              >
-                <Icon className="h-4 w-4 sm:h-3.5 sm:w-3.5" aria-hidden="true" />
-                <span className="hidden sm:inline">{label}</span>
-                <span
-                  aria-hidden="true"
-                  className={`absolute inset-x-2 bottom-0 h-[2px] rounded-full bg-hearth transition-opacity duration-200 ease-punch ${
-                    active ? "opacity-100" : "opacity-0"
-                  }`}
-                />
-              </Link>
-            );
-          })}
-        </nav>
+          <Suspense fallback={<HeaderNav pathname={null} />}>
+            <HeaderNavWithPath />
+          </Suspense>
         )}
 
         {/* 오른쪽: 페이지별 버튼 + 로그인 */}
@@ -123,5 +101,42 @@ export function SiteHeader({ actions }: { actions?: ReactNode }) {
         className="h-px w-full bg-gradient-to-r from-transparent via-winter/20 to-transparent"
       />
     </header>
+  );
+}
+
+/** 현재 경로를 읽어 메뉴에 넘긴다 (Suspense 안에서만 렌더) */
+function HeaderNavWithPath() {
+  const pathname = usePathname();
+  return <HeaderNav pathname={pathname} />;
+}
+
+/** 주 메뉴 — 현재 페이지에 Hearth 밑줄 */
+function HeaderNav({ pathname }: { pathname: string | null }) {
+  return (
+    <nav aria-label="주 메뉴" className="flex h-full items-stretch gap-1">
+      {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
+        const active = pathname === href;
+        return (
+          <Link
+            key={href}
+            href={href}
+            aria-current={active ? "page" : undefined}
+            aria-label={label}
+            className={`relative flex items-center gap-1.5 px-2.5 text-[13px] transition-colors duration-200 ease-punch outline-none focus-visible:text-winter ${
+              active ? "font-medium text-winter" : "text-winter/60 hover:text-winter"
+            }`}
+          >
+            <Icon className="h-4 w-4 sm:h-3.5 sm:w-3.5" aria-hidden="true" />
+            <span className="hidden sm:inline">{label}</span>
+            <span
+              aria-hidden="true"
+              className={`absolute inset-x-2 bottom-0 h-[2px] rounded-full bg-hearth transition-opacity duration-200 ease-punch ${
+                active ? "opacity-100" : "opacity-0"
+              }`}
+            />
+          </Link>
+        );
+      })}
+    </nav>
   );
 }

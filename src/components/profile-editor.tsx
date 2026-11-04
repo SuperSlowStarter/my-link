@@ -13,16 +13,15 @@ import {
   Video,
   X,
 } from "lucide-react";
-import { extractYoutubeVideoId } from "@/data/links";
+import { extractYoutubeVideoId, type ShowreelConfig } from "@/data/links";
 import {
   makeSkillSchema,
-  profileInfoSchema,
+  profileRoleSchema,
   showreelSchema,
-  type ProfileInfoValues,
+  type ProfileRoleValues,
   type ShowreelValues,
   type SkillValues,
 } from "@/lib/schemas";
-import { useAuthStore } from "@/store/auth-store";
 import { useLinksStore } from "@/store/links-store";
 import { UserAvatar } from "@/components/user-avatar";
 import { useProfileStore } from "@/store/profile-store";
@@ -32,16 +31,19 @@ import { FieldError } from "@/components/ui/field-error";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
+
+/** 프로필을 아직 못 받았을 때 쓰는 고정 값 (선택자에서 매번 새 배열을 만들지 않게) */
+const NO_SKILLS: string[] = [];
+const NO_SHOWREEL: ShowreelConfig = { enabled: false, title: "", subtitle: "", youtubeUrl: "", badge: "" };
 
 const SECTION =
   "flex flex-col gap-3 rounded-[0.5rem] border border-winter/18 bg-crow/45 p-3.5";
 
 /**
- * 편집 모드 본문 (PRD 3.1 ~ 3.3, 7.3) — 프로필·기술 스택·쇼릴
- * 링크 관리는 /mypage(내 링크 관리)로 모았다 (PRD 3.4, 3.6).
+ * 편집 모드 본문 — 직무·기술 스택·쇼릴 (Firestore users/{uid}/profile/main)
+ * 이름·소개·username은 마이페이지 프로필 수정, 링크는 /mypage 링크 관리에서 다룬다.
  * - 입력은 React Hook Form이 관리하고 Zod 스키마로 검사한다.
- * - 검사를 통과한 값만 Zustand 스토어에 즉시 저장된다 (실시간 자동 저장).
+ * - 검사를 통과한 값만 입력이 멈춘 뒤(600ms) Firestore에 자동 저장된다.
  * - 통과하지 못한 칸은 아래에 오류 문구가 뜨고, 고칠 때까지 화면의 카드에는 마지막 정상 값이 유지된다.
  */
 export function ProfileEditor() {
@@ -55,7 +57,7 @@ export function ProfileEditor() {
             EDIT MODE ACTIVE
           </span>
         </div>
-        <span className="text-[11px] text-winter/80">검사 통과 시 자동 저장</span>
+        <span className="text-[11px] text-winter/80">입력하면 자동 저장</span>
       </div>
 
       <ProfileInfoSection />
@@ -66,76 +68,59 @@ export function ProfileEditor() {
 }
 
 /* ------------------------------------------------------------------ */
-/* 1. 프로필 기본 정보 + 기술 스택                                       */
+/* 1. 프로필 — 사진(Google)·이름·소개는 마이페이지, 여기서는 직무·스킬     */
 /* ------------------------------------------------------------------ */
 function ProfileInfoSection() {
   const profile = useProfileStore((state) => state.profile);
-  const updateProfile = useProfileStore((state) => state.updateProfile);
-  const photoURL = useAuthStore((state) => state.profile?.photoURL || state.user?.photoURL || "");
+  const updateDetails = useProfileStore((state) => state.updateDetails);
 
   const {
     register,
     subscribe,
     formState: { errors },
-  } = useForm<ProfileInfoValues>({
-    resolver: zodResolver(profileInfoSchema),
+  } = useForm<ProfileRoleValues>({
+    resolver: zodResolver(profileRoleSchema),
     mode: "onChange",
-    defaultValues: {
-      name: profile.name,
-      role: profile.role,
-      bio: profile.bio,
-    },
+    defaultValues: { role: profile?.role ?? "" },
   });
 
-  // 검사를 통과한 값만 스토어에 반영한다
+  // 검사를 통과한 값만 Firestore에 자동 저장한다 (입력이 멈추면 저장)
   useEffect(
     () =>
       subscribe({
         formState: { values: true },
         callback: ({ values }) => {
-          const result = profileInfoSchema.safeParse(values);
+          const result = profileRoleSchema.safeParse(values);
           if (!result.success) return;
-          updateProfile((prev) => ({ ...prev, ...result.data }));
+          updateDetails({ role: result.data.role });
         },
       }),
-    [subscribe, updateProfile]
+    [subscribe, updateDetails]
   );
 
+  if (!profile) return null;
 
   return (
     <div className={SECTION}>
-      {/* 프로필 사진: Google 계정 사진을 그대로 쓴다 */}
+      {/* 사진·이름·소개·username: Google 사진 + 마이페이지 프로필 수정 */}
       <div className="flex items-center gap-3">
-        <UserAvatar photoURL={photoURL} size={56} alt={profile.name} />
-        <div className="min-w-0 flex-1 text-[11px] leading-relaxed text-winter/65">
-          <p className="font-medium text-winter/85">프로필 사진은 Google 계정 사진을 써요.</p>
-          <a
-            href="https://myaccount.google.com/personal-info"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-hearth underline-offset-4 hover:underline"
+        <UserAvatar photoURL={profile.photoURL} size={56} alt={profile.displayName} />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-winter">{profile.displayName}</p>
+          <p className="truncate font-mono text-[11px] text-winter/55">@{profile.username}</p>
+          <Link
+            href="/mypage#profile"
+            className="mt-1 inline-flex items-center gap-1 text-[11px] text-hearth underline-offset-4 hover:underline"
           >
-            Google 계정에서 사진 바꾸기 ↗
-          </a>
+            이름·소개·username은 마이페이지에서 수정
+            <ArrowRight className="h-3 w-3" aria-hidden="true" />
+          </Link>
         </div>
       </div>
 
       <div>
-        <Label htmlFor="edit-name" className="mb-1">
-          이름 (H1) *
-        </Label>
-        <Input
-          id="edit-name"
-          placeholder="이대건"
-          aria-invalid={errors.name ? true : undefined}
-          {...register("name")}
-        />
-        <FieldError message={errors.name?.message} />
-      </div>
-
-      <div>
         <Label htmlFor="edit-role" className="mb-1">
-          직무 타이틀 (Label) *
+          직무 타이틀 (Label)
         </Label>
         <Input
           id="edit-role"
@@ -146,27 +131,13 @@ function ProfileInfoSection() {
         <FieldError message={errors.role?.message} />
       </div>
 
-      <div>
-        <Label htmlFor="edit-bio" className="mb-1">
-          소개글 (멀티라인 지원)
-        </Label>
-        <Textarea
-          id="edit-bio"
-          rows={3}
-          placeholder="자기소개 문구를 입력하세요."
-          aria-invalid={errors.bio ? true : undefined}
-          {...register("bio")}
-        />
-        <FieldError message={errors.bio?.message} />
-      </div>
-
       <SkillsField />
     </div>
   );
 }
 
 function SkillsField() {
-  const skills = useProfileStore((state) => state.profile.skills);
+  const skills = useProfileStore((state) => state.profile?.skills ?? NO_SKILLS);
   const addSkill = useProfileStore((state) => state.addSkill);
   const removeSkill = useProfileStore((state) => state.removeSkill);
 
@@ -230,7 +201,7 @@ function SkillsField() {
 /* 2. 대표 쇼릴                                                         */
 /* ------------------------------------------------------------------ */
 function ShowreelSection() {
-  const showreel = useProfileStore((state) => state.profile.showreel);
+  const showreel = useProfileStore((state) => state.profile?.showreel ?? NO_SHOWREEL);
   const updateShowreel = useProfileStore((state) => state.updateShowreel);
 
   const {

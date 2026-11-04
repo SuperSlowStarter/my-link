@@ -45,14 +45,14 @@ export const LINK_ICON_OPTIONS: {
   label: string;
   accentColor: string;
 }[] = [
-  { value: "play", label: "Play (쇼릴/영상)", accentColor: "#FFFFFF" },
-  { value: "youtube", label: "YouTube (유튜브)", accentColor: "#FF1493" },
-  { value: "instagram", label: "Instagram (인스타그램)", accentColor: "#8B00FF" },
-  { value: "film", label: "Film (포트폴리오/아카이브)", accentColor: "#0080FF" },
-  { value: "sparkles", label: "Sparkles (클래스/하이라이트)", accentColor: "#FF1493" },
-  { value: "globe", label: "Globe (웹사이트/스토어)", accentColor: "#20B2AA" },
-  { value: "link", label: "Link (일반 외부 링크)", accentColor: "#0080FF" },
-  { value: "mail", label: "Mail (이메일/외주 문의)", accentColor: "#20B2AA" },
+  { value: "play", label: "Play (쇼릴/영상)", accentColor: "#F5ECD1" },
+  { value: "youtube", label: "YouTube (유튜브)", accentColor: "#E1CAA6" },
+  { value: "instagram", label: "Instagram (인스타그램)", accentColor: "#F5ECD1" },
+  { value: "film", label: "Film (포트폴리오/아카이브)", accentColor: "#E1CAA6" },
+  { value: "sparkles", label: "Sparkles (클래스/하이라이트)", accentColor: "#E1CAA6" },
+  { value: "globe", label: "Globe (웹사이트/스토어)", accentColor: "#74838A" },
+  { value: "link", label: "Link (일반 외부 링크)", accentColor: "#E1CAA6" },
+  { value: "mail", label: "Mail (이메일/외주 문의)", accentColor: "#74838A" },
 ];
 
 export const DEFAULT_SKILLS: string[] = [

@@ -17,11 +17,11 @@ export function LinkIcon({
 }) {
   switch (iconType) {
     case "play":
-      return <Play className={`${className} text-white`} aria-hidden="true" />;
+      return <Play className={`${className} text-winter`} aria-hidden="true" />;
     case "youtube":
       return (
         <svg
-          className={`${className} text-[#FF1493]`}
+          className={`${className} text-hearth`}
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"
@@ -37,7 +37,7 @@ export function LinkIcon({
     case "instagram":
       return (
         <svg
-          className={`${className} text-[#8B00FF]`}
+          className={`${className} text-winter`}
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"
@@ -53,27 +53,27 @@ export function LinkIcon({
       );
     case "mail":
       return (
-        <Mail className={`${className} text-[#20B2AA]`} aria-hidden="true" />
+        <Mail className={`${className} text-wharf`} aria-hidden="true" />
       );
     case "film":
       return (
-        <Film className={`${className} text-[#0080FF]`} aria-hidden="true" />
+        <Film className={`${className} text-hearth`} aria-hidden="true" />
       );
     case "globe":
       return (
-        <Globe className={`${className} text-[#20B2AA]`} aria-hidden="true" />
+        <Globe className={`${className} text-wharf`} aria-hidden="true" />
       );
     case "sparkles":
       return (
         <Sparkles
-          className={`${className} text-[#FF1493]`}
+          className={`${className} text-hearth`}
           aria-hidden="true"
         />
       );
     case "link":
     default:
       return (
-        <Link2 className={`${className} text-[#0080FF]`} aria-hidden="true" />
+        <Link2 className={`${className} text-hearth`} aria-hidden="true" />
       );
   }
 }

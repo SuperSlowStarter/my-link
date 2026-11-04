@@ -1,13 +1,29 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ArrowLeft, ExternalLink, Link2, Loader2, Plus, Trash2 } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowUp,
+  ExternalLink,
+  Link2,
+  Loader2,
+  Pencil,
+  Plus,
+  SlidersHorizontal,
+  Trash2,
+} from "lucide-react";
+import type { LinkItem } from "@/data/links";
 import { quickLinkSchema, type QuickLinkValues } from "@/lib/schemas";
 import { useRimLight } from "@/lib/use-rim-light";
 import { useLinksStore, useLinksSync } from "@/store/links-store";
 import { AmbientBackground } from "@/components/ambient-background";
+import { LinkFormModal } from "@/components/link-form-modal";
+import { LinkIcon } from "@/components/link-icon";
+import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { FieldError } from "@/components/ui/field-error";
@@ -15,21 +31,62 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 /**
- * /mypage — 내 링크 관리
- * 목록·추가·삭제 모두 Firestore users/anonymous/links 를 쓴다 (메인 허브와 같은 컬렉션).
- * 상단: 제목 / 중간: 추가 폼 / 하단: 목록
+ * /mypage — 내 링크 관리 (링크 관리 전용 페이지)
+ * 링크 추가·수정·삭제·순서 변경은 모두 여기서 한다. 메인 편집 모드는 프로필·스킬·쇼릴만 다룬다.
+ * 데이터 원본: Firestore users/anonymous/links (메인 카드와 같은 컬렉션, 실시간 동기화)
+ * 상단: 제목 / 중간: 빠른 추가 폼 / 하단: 목록 (기본 최신순, '카드 순서' 보기에서 순서 변경)
  */
+
+/** 추가 시각 표시: "11월 4일 오후 12:07" */
+const createdAtFormat = new Intl.DateTimeFormat("ko-KR", {
+  month: "long",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+});
+
+type SortMode = "latest" | "card";
+
+const ICON_BUTTON =
+  "inline-flex size-6 cursor-pointer items-center justify-center rounded-[4px] border border-winter/15 bg-winter/8 text-winter/80 transition-colors hover:bg-winter/20 disabled:pointer-events-none disabled:opacity-30";
+
 export default function MyPage() {
   useRimLight();
 
-  // Firestore 실시간 구독 (새로고침해도 목록 유지, 메인 화면과 즉시 동기화)
+  // 페이지가 열리면 Firestore에서 불러오고(createdAt 최신순), 변경이 생기면 바로 갱신된다
   useLinksSync();
-  const links = useLinksStore((state) => state.links);
+  const latestLinks = useLinksStore((state) => state.links);
+  const orderedLinks = useLinksStore((state) => state.orderedLinks);
   const status = useLinksStore((state) => state.status);
   const storeError = useLinksStore((state) => state.error);
+  const clearStoreError = useLinksStore((state) => state.clearError);
   const addLink = useLinksStore((state) => state.addLink);
+  const updateLink = useLinksStore((state) => state.updateLink);
   const deleteLink = useLinksStore((state) => state.deleteLink);
+  const moveLink = useLinksStore((state) => state.moveLink);
 
+  const [sortMode, setSortMode] = useState<SortMode>("latest");
+  const links = sortMode === "latest" ? latestLinks : orderedLinks;
+
+  // 상세 추가·수정 모달
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingLink, setEditingLink] = useState<LinkItem | null>(null);
+
+  const openCreateModal = () => {
+    setEditingLink(null);
+    setIsModalOpen(true);
+  };
+  const openEditModal = (link: LinkItem) => {
+    setEditingLink(link);
+    setIsModalOpen(true);
+  };
+  // 모달은 바로 닫히고, Firestore 쓰기 실패는 목록 위 알림으로 보여준다
+  const handleModalSave = (linkData: Omit<LinkItem, "id">, id?: string) => {
+    if (id) void updateLink(id, linkData);
+    else void addLink(linkData);
+  };
+
+  /* ------------------------- 빠른 추가 폼 (제목 + 주소) ------------------------- */
   const {
     register,
     handleSubmit,
@@ -47,12 +104,12 @@ export default function MyPage() {
 
   // 검사 통과 → Firestore에 저장(목록은 구독으로 자동 반영)
   // → 입력 칸 자동 비우기 → 다음 입력을 위해 제목 칸에 포커스
-  const onSubmit = async (values: QuickLinkValues) => {
+  const onQuickSubmit = async (values: QuickLinkValues) => {
     clearErrors("root");
     const id = await addLink({
       title: values.title,
       href: values.href,
-      // 메인 허브 카드에 필요한 나머지 필드는 기본값
+      // 메인 카드에 필요한 나머지 필드는 기본값 (나중에 '수정'에서 바꿀 수 있음)
       subtitle: "",
       iconType: "link",
       variant: "glass",
@@ -83,18 +140,16 @@ export default function MyPage() {
             <span>마이링크로 돌아가기</span>
           </Link>
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-winter">
-              내 링크 관리
-            </h1>
+            <h1 className="text-2xl font-bold tracking-tight text-winter">내 링크 관리</h1>
             <p className="mt-1 text-xs text-winter/70">
-              제목과 주소를 입력하고 추가 버튼을 누르면 아래 목록에 쌓여요.
+              메인 카드에 보이는 링크를 여기서 추가·수정·삭제하고 순서를 바꿔요.
             </p>
           </div>
         </header>
 
-        {/* 중간: 링크 추가 폼 (입력 칸 세로 배치) */}
+        {/* 중간: 빠른 추가 폼 (입력 칸 세로 배치) */}
         <form
-          onSubmit={handleSubmit(onSubmit)}
+          onSubmit={handleSubmit(onQuickSubmit)}
           noValidate
           aria-label="링크 추가"
           className="relative z-10 flex flex-col gap-3"
@@ -130,20 +185,31 @@ export default function MyPage() {
             <FieldError id="mypage-href-error" message={errors.href?.message} />
           </div>
 
-          <Button
-            type="submit"
-            variant="primary"
-            className="mt-1 w-full"
-            disabled={isSubmitting}
-            aria-busy={isSubmitting}
-          >
-            {isSubmitting ? (
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-            ) : (
-              <Plus className="h-4 w-4" />
-            )}
-            <span>{isSubmitting ? "저장 중..." : "추가"}</span>
-          </Button>
+          <div className="mt-1 flex gap-2">
+            <Button
+              type="submit"
+              variant="primary"
+              className="flex-1"
+              disabled={isSubmitting}
+              aria-busy={isSubmitting}
+            >
+              {isSubmitting ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <Plus className="h-4 w-4" />
+              )}
+              <span>{isSubmitting ? "저장 중..." : "추가"}</span>
+            </Button>
+            <Button
+              type="button"
+              variant="glass"
+              onClick={openCreateModal}
+              title="부제목·아이콘·배지·스타일까지 입력해서 추가"
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+              <span>상세 추가</span>
+            </Button>
+          </div>
           <FieldError message={errors.root?.message} className="text-center" />
         </form>
 
@@ -151,26 +217,70 @@ export default function MyPage() {
 
         {/* 하단: 링크 목록 */}
         <section aria-labelledby="mypage-list-title" className="relative z-10">
-          <div className="mb-2.5 flex items-center justify-between">
+          <div className="mb-2.5 flex items-center justify-between gap-2">
             <h2
               id="mypage-list-title"
               className="text-xs font-bold tracking-wider text-winter uppercase"
             >
               링크 목록 ({links.length})
             </h2>
-            <span className="font-mono text-[10px] text-winter/50">
-              Firestore 실시간 동기화
-            </span>
+            {/* 정렬 보기 전환 */}
+            <div
+              role="group"
+              aria-label="목록 정렬"
+              className="inline-flex rounded-[6px] border border-winter/15 bg-crow/40 p-0.5"
+            >
+              {(
+                [
+                  ["latest", "최신순"],
+                  ["card", "카드 순서"],
+                ] as const
+              ).map(([mode, label]) => (
+                <button
+                  key={mode}
+                  type="button"
+                  aria-pressed={sortMode === mode}
+                  onClick={() => setSortMode(mode)}
+                  className={`cursor-pointer rounded-[4px] px-2 py-0.5 text-[11px] font-medium transition-colors duration-200 ease-punch ${
+                    sortMode === mode
+                      ? "bg-hearth text-crow"
+                      : "text-winter/70 hover:bg-winter/10 hover:text-winter"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
+          <p className="mb-2.5 text-[11px] text-winter/50">
+            {sortMode === "latest"
+              ? "추가한 시각이 최신인 순서예요. 순서를 바꾸려면 '카드 순서'를 눌러주세요."
+              : "메인 카드에 보이는 순서예요. 화살표로 위치를 바꿀 수 있어요."}
+          </p>
+
+          {storeError && links.length > 0 && (
+            <button
+              type="button"
+              role="alert"
+              onClick={clearStoreError}
+              title="닫기"
+              className="mb-2 w-full cursor-pointer rounded-[6px] border border-danger/30 bg-danger/10 px-3 py-2 text-left text-[11px] font-medium text-danger"
+            >
+              {storeError}
+            </button>
+          )}
 
           {status === "error" && links.length === 0 ? (
-            <p role="alert" className="rounded-[0.5rem] border border-danger/30 bg-danger/10 p-4 text-center text-xs text-danger">
+            <p
+              role="alert"
+              className="rounded-[0.5rem] border border-danger/30 bg-danger/10 p-4 text-center text-xs text-danger"
+            >
               {storeError ?? "링크를 불러오지 못했어요."}
             </p>
           ) : status !== "ready" && links.length === 0 ? (
             <div aria-busy="true" aria-label="링크를 불러오는 중" className="flex flex-col gap-2">
               {[0, 1].map((key) => (
-                <div key={key} className="h-[54px] animate-pulse rounded-[0.5rem] bg-winter/[0.08]" />
+                <div key={key} className="h-[66px] animate-pulse rounded-[0.5rem] bg-winter/[0.08]" />
               ))}
             </div>
           ) : links.length > 0 ? (
@@ -178,36 +288,86 @@ export default function MyPage() {
               {links.map((link, index) => (
                 <li
                   key={link.id}
-                  style={{ animationDelay: `${index * 80}ms` }}
-                  className="animate-glass-entry relative flex items-center gap-2.5 rounded-[0.5rem] border border-winter/[0.08] bg-winter/[0.12] p-2.5 backdrop-blur-md"
+                  className="relative flex items-center gap-2.5 rounded-[0.5rem] border border-winter/[0.08] bg-winter/[0.12] p-2.5 backdrop-blur-md"
                 >
                   <div className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-[4px] border border-winter/10 bg-cedar/45">
-                    <Link2 className="h-4 w-4 text-hearth" aria-hidden="true" />
+                    <LinkIcon iconType={link.iconType} className="h-4 w-4" />
                   </div>
+
                   <a
                     href={link.href}
                     target={link.href.startsWith("http") ? "_blank" : undefined}
                     rel={link.href.startsWith("http") ? "noopener noreferrer" : undefined}
                     className="group relative z-10 min-w-0 flex-1"
                   >
-                    <span className="flex items-center gap-1 truncate text-sm font-semibold text-winter group-hover:underline">
-                      {link.title}
+                    <span className="flex items-center gap-1.5">
+                      <span className="truncate text-sm font-semibold text-winter group-hover:underline">
+                        {link.title}
+                      </span>
+                      {link.badge && (
+                        <Badge
+                          variant={link.badge === "NEW" ? "pink" : "purple"}
+                          className="px-1 py-0 text-[10px]"
+                        >
+                          {link.badge}
+                        </Badge>
+                      )}
                       <ExternalLink className="h-3 w-3 shrink-0 text-winter/50" aria-hidden="true" />
                     </span>
                     <span className="block truncate text-[11px] text-winter/65">
-                      {link.href}
+                      {link.subtitle || link.href}
                     </span>
+                    <time
+                      dateTime={new Date(link.createdAtMs).toISOString()}
+                      className="mt-0.5 block font-mono text-[10px] text-winter/45"
+                    >
+                      {createdAtFormat.format(link.createdAtMs)}
+                    </time>
                   </a>
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    size="icon-xs"
-                    onClick={() => void deleteLink(link.id)}
-                    aria-label={`${link.title} 삭제`}
-                    className="relative z-10"
-                  >
-                    <Trash2 className="size-3" />
-                  </Button>
+
+                  {/* 순서 변경(카드 순서 보기) · 수정 · 삭제 */}
+                  <div className="relative z-10 flex shrink-0 items-center gap-1">
+                    {sortMode === "card" && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => void moveLink(index, "up")}
+                          disabled={index === 0}
+                          aria-label={`${link.title} 위로 이동`}
+                          className={ICON_BUTTON}
+                        >
+                          <ArrowUp className="size-3" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void moveLink(index, "down")}
+                          disabled={index === links.length - 1}
+                          aria-label={`${link.title} 아래로 이동`}
+                          className={ICON_BUTTON}
+                        >
+                          <ArrowDown className="size-3" />
+                        </button>
+                      </>
+                    )}
+                    <Button
+                      type="button"
+                      variant="glass"
+                      size="icon-xs"
+                      onClick={() => openEditModal(link)}
+                      aria-label={`${link.title} 수정`}
+                    >
+                      <Pencil className="size-3" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="icon-xs"
+                      onClick={() => void deleteLink(link.id)}
+                      aria-label={`${link.title} 삭제`}
+                    >
+                      <Trash2 className="size-3" />
+                    </Button>
+                  </div>
                 </li>
               ))}
             </ul>
@@ -220,6 +380,15 @@ export default function MyPage() {
           )}
         </section>
       </Card>
+
+      {/* 상세 추가·수정 모달 (Zod + React Hook Form 검사) */}
+      <LinkFormModal
+        key={`${editingLink?.id ?? "new"}-${isModalOpen ? "open" : "closed"}`}
+        open={isModalOpen}
+        onOpenChange={setIsModalOpen}
+        initialLink={editingLink}
+        onSave={handleModalSave}
+      />
     </main>
   );
 }

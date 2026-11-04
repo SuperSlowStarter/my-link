@@ -8,6 +8,7 @@ import {
   describeFirestoreError,
   migrateLocalLinks,
   reorderLinkDocs,
+  sortByOrder,
   subscribeLinks,
   updateLinkDoc,
   type LinkInput,
@@ -24,7 +25,10 @@ import { useProfileStore } from "@/store/profile-store";
 type LinksStatus = "idle" | "loading" | "ready" | "error";
 
 interface LinksState {
+  /** Firestore에서 받은 그대로: createdAt 최신순 (/mypage 목록) */
   links: StoredLink[];
+  /** 직접 정한 순서(order) — 메인 카드·편집 모드 */
+  orderedLinks: StoredLink[];
   status: LinksStatus;
   /** 마지막 오류 문구 (화면 알림용) */
   error: string | null;
@@ -56,14 +60,15 @@ export const useLinksStore = create<LinksState>()((set, get) => {
 
   return {
     links: [],
+    orderedLinks: [],
     status: "idle",
     error: null,
     savedAt: null,
 
     addLink: (input) => {
-      const { links } = get();
-      const last = links[links.length - 1];
-      const order = last && last.order !== Number.MAX_SAFE_INTEGER ? last.order + 1 : links.length;
+      const { orderedLinks } = get();
+      const known = orderedLinks.filter((link) => link.order !== Number.MAX_SAFE_INTEGER);
+      const order = known.length ? known[known.length - 1].order + 1 : orderedLinks.length;
       return write(() => addLinkDoc(input, order));
     },
 
@@ -74,7 +79,7 @@ export const useLinksStore = create<LinksState>()((set, get) => {
       (await write(() => deleteLinkDoc(id).then(() => true))) ?? false,
 
     moveLink: async (index, direction) => {
-      const ids = get().links.map((link) => link.id);
+      const ids = get().orderedLinks.map((link) => link.id);
       const target = direction === "up" ? index - 1 : index + 1;
       if (target < 0 || target >= ids.length) return false;
       const [moved] = ids.splice(index, 1);
@@ -122,7 +127,8 @@ function startLinksSync() {
     useLinksStore.setState({ status: "loading", error: null });
     try {
       unsubscribe = subscribeLinks(
-        (links) => useLinksStore.setState({ links, status: "ready" }),
+        (links) =>
+          useLinksStore.setState({ links, orderedLinks: sortByOrder(links), status: "ready" }),
         (error) =>
           useLinksStore.setState({ status: "error", error: describeFirestoreError(error) })
       );

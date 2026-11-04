@@ -5,6 +5,8 @@ import {
   deleteField,
   doc,
   onSnapshot,
+  orderBy,
+  query,
   runTransaction,
   serverTimestamp,
   updateDoc,
@@ -84,14 +86,22 @@ function fromDocument(id: string, data: DocumentData): StoredLink {
   };
 }
 
-/** 정렬: order 오름차순 → 같으면 createdAt 오름차순 */
-function sortLinks(links: StoredLink[]) {
-  return links.sort((a, b) => a.order - b.order || a.createdAtMs - b.createdAtMs);
+/**
+ * 메인 카드용 정렬: 직접 정한 order 오름차순 → 같으면 createdAt 오름차순.
+ * (order가 없는 예전 문서는 맨 뒤)
+ */
+export function sortByOrder(links: StoredLink[]): StoredLink[] {
+  return [...links].sort((a, b) => a.order - b.order || a.createdAtMs - b.createdAtMs);
 }
 
 /* ------------------------------------------------------------------ */
-/* Read — 실시간 구독                                                  */
+/* Read — 실시간 구독 (createdAt 최신순)                                 */
 /* ------------------------------------------------------------------ */
+/**
+ * 페이지가 열리면 users/{userId}/links 를 createdAt 내림차순(최신순)으로 불러오고,
+ * 이후 추가·수정·삭제가 생길 때마다 onChange가 다시 호출된다.
+ * 방금 추가한 문서는 서버 시각이 정해지기 전에도 추정 시각으로 맨 위에 온다.
+ */
 export function subscribeLinks(
   onChange: (links: StoredLink[]) => void,
   onError: (error: unknown) => void,
@@ -99,13 +109,13 @@ export function subscribeLinks(
 ): Unsubscribe {
   assertConfigured();
   return onSnapshot(
-    linksCollection(userId),
+    query(linksCollection(userId), orderBy("createdAt", "desc")),
     (snapshot) => {
       const links = snapshot.docs.map((snap) =>
         // 서버 시각이 아직 안 정해진 직후에도 정렬이 흔들리지 않게 추정값을 쓴다
         fromDocument(snap.id, snap.data({ serverTimestamps: "estimate" }))
       );
-      onChange(sortLinks(links));
+      onChange(links);
     },
     onError
   );

@@ -12,14 +12,12 @@ import {
   Plus,
   RotateCcw,
 } from "lucide-react";
-import type { LinkItem } from "@/data/links";
 import { useLinksStore, useLinksSync } from "@/store/links-store";
 import { useProfileStore } from "@/store/profile-store";
 import { useRimLight } from "@/lib/use-rim-light";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { LinkFormModal } from "@/components/link-form-modal";
 import { LinkIcon } from "@/components/link-icon";
 import { ProfileEditor } from "@/components/profile-editor";
 import { ShowreelBlock } from "@/components/showreel-block";
@@ -38,21 +36,16 @@ export default function Home() {
 
   // 링크: Zustand + Firestore(users/anonymous/links) 실시간 구독
   useLinksSync();
-  const links = useLinksStore((state) => state.links);
+  // 메인 카드는 편집 모드에서 직접 정한 순서대로 보여준다
+  const links = useLinksStore((state) => state.orderedLinks);
   const linksStatus = useLinksStore((state) => state.status);
   const linksSavedAt = useLinksStore((state) => state.savedAt);
   const linksError = useLinksStore((state) => state.error);
   const clearLinksError = useLinksStore((state) => state.clearError);
-  const addLink = useLinksStore((state) => state.addLink);
-  const updateLink = useLinksStore((state) => state.updateLink);
 
   const [isEditMode, setIsEditMode] = useState(false);
   const [avatarLoadError, setAvatarLoadError] = useState(false);
   const [noticeHiddenAt, setNoticeHiddenAt] = useState<number | null>(null);
-
-  // 링크 추가/수정 모달 상태
-  const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
-  const [editingLink, setEditingLink] = useState<LinkItem | null>(null);
 
   // 브라우저에 마운트된 뒤 localStorage 값을 불러온다 (SSR 기본값과 첫 화면 일치)
   useEffect(() => {
@@ -75,22 +68,6 @@ export default function Home() {
           ? "프로필 기본값으로 복원됨"
           : "LocalStorage 자동 저장됨"
       : null;
-
-  const handleOpenAddLink = () => {
-    setEditingLink(null);
-    setIsLinkModalOpen(true);
-  };
-
-  const handleOpenEditLink = (link: LinkItem) => {
-    setEditingLink(link);
-    setIsLinkModalOpen(true);
-  };
-
-  // 모달은 바로 닫고, Firestore 쓰기 실패는 상단 알림으로 알려준다
-  const handleSaveLink = (linkData: Omit<LinkItem, "id">, id?: string) => {
-    if (id) void updateLink(id, linkData);
-    else void addLink(linkData);
-  };
 
   const handleResetToDefault = () => {
     resetProfile();
@@ -336,18 +313,15 @@ export default function Home() {
                     등록된 외부 링크가 없습니다.
                   </p>
                   <p className="text-xs text-winter/65">
-                    편집 모드에서 유튜브, 인스타그램, 외주 문의 링크를 추가해보세요.
+                    내 링크 관리에서 유튜브, 인스타그램, 외주 문의 링크를 추가해보세요.
                   </p>
-                  <Button
-                    type="button"
-                    variant="glass"
-                    size="xs"
-                    className="mt-1"
-                    onClick={() => setIsEditMode(true)}
+                  <Link
+                    href="/mypage"
+                    className={buttonVariants({ variant: "glass", size: "xs", className: "mt-1" })}
                   >
                     <Plus className="h-3.5 w-3.5" />
                     <span>링크 추가하기</span>
-                  </Button>
+                  </Link>
                 </div>
               )}
             </nav>
@@ -360,23 +334,11 @@ export default function Home() {
             </footer>
           </>
         ) : (
-          /* EDIT MODE (관리자 실시간 편집 시점 — PRD 3.1 ~ 3.4, 7.3) */
-          <ProfileEditor
-            key={resetVersion}
-            onAddLink={handleOpenAddLink}
-            onEditLink={handleOpenEditLink}
-          />
+          /* EDIT MODE (프로필·스킬·쇼릴 편집 — PRD 3.1 ~ 3.3, 7.3 / 링크는 /mypage) */
+          <ProfileEditor key={resetVersion} />
         )}
       </Card>
 
-      {/* 링크 추가/수정 Glass 모달 */}
-      <LinkFormModal
-        key={`${editingLink?.id ?? "new"}-${isLinkModalOpen ? "open" : "closed"}`}
-        open={isLinkModalOpen}
-        onOpenChange={setIsLinkModalOpen}
-        initialLink={editingLink}
-        onSave={handleSaveLink}
-      />
     </main>
   );
 }

@@ -3,18 +3,18 @@
 import { useEffect, useMemo, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import Link from "next/link";
 import {
-  ArrowDown,
-  ArrowUp,
+  ArrowRight,
   Image as ImageIcon,
   Link2,
+  ListPlus,
   Plus,
   Sparkles,
-  Trash2,
   Video,
   X,
 } from "lucide-react";
-import { extractYoutubeVideoId, type LinkItem } from "@/data/links";
+import { extractYoutubeVideoId } from "@/data/links";
 import {
   makeSkillSchema,
   profileInfoSchema,
@@ -26,30 +26,24 @@ import {
 import { useLinksStore } from "@/store/links-store";
 import { useProfileStore } from "@/store/profile-store";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { FieldError } from "@/components/ui/field-error";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { LinkIcon } from "@/components/link-icon";
 
 const SECTION =
   "flex flex-col gap-3 rounded-[0.5rem] border border-winter/18 bg-crow/45 p-3.5";
 
 /**
- * 편집 모드 본문 (PRD 3.1 ~ 3.4, 7.3)
+ * 편집 모드 본문 (PRD 3.1 ~ 3.3, 7.3) — 프로필·기술 스택·쇼릴
+ * 링크 관리는 /mypage(내 링크 관리)로 모았다 (PRD 3.4, 3.6).
  * - 입력은 React Hook Form이 관리하고 Zod 스키마로 검사한다.
  * - 검사를 통과한 값만 Zustand 스토어에 즉시 저장된다 (실시간 자동 저장).
  * - 통과하지 못한 칸은 아래에 오류 문구가 뜨고, 고칠 때까지 화면의 카드에는 마지막 정상 값이 유지된다.
  */
-export function ProfileEditor({
-  onAddLink,
-  onEditLink,
-}: {
-  onAddLink: () => void;
-  onEditLink: (link: LinkItem) => void;
-}) {
+export function ProfileEditor() {
   return (
     <div className="relative z-10 flex w-full flex-col gap-5 text-left">
       {/* 편집 모드 활성 배너 */}
@@ -65,7 +59,7 @@ export function ProfileEditor({
 
       <ProfileInfoSection />
       <ShowreelSection />
-      <LinksSection onAddLink={onAddLink} onEditLink={onEditLink} />
+      <LinksShortcut />
     </div>
   );
 }
@@ -440,124 +434,31 @@ function ShowreelSection() {
 }
 
 /* ------------------------------------------------------------------ */
-/* 3. 링크 목록 관리 (추가·수정은 모달에서 검사)                         */
+/* 3. 링크 — 관리는 /mypage(내 링크 관리)에서                           */
 /* ------------------------------------------------------------------ */
-function LinksSection({
-  onAddLink,
-  onEditLink,
-}: {
-  onAddLink: () => void;
-  onEditLink: (link: LinkItem) => void;
-}) {
-  // 링크는 Firestore(users/anonymous/links)가 원본이다
-  const links = useLinksStore((state) => state.links);
-  const status = useLinksStore((state) => state.status);
-  const deleteLink = useLinksStore((state) => state.deleteLink);
-  const moveLink = useLinksStore((state) => state.moveLink);
+function LinksShortcut() {
+  const count = useLinksStore((state) => state.orderedLinks.length);
 
   return (
-    <div className="flex flex-col gap-2.5 rounded-[0.5rem] border border-winter/18 bg-crow/45 p-3.5">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5">
-          <Link2 className="h-4 w-4 text-wharf" aria-hidden="true" />
-          <h2 className="text-xs font-bold tracking-wider text-winter uppercase">
-            링크 목록 관리 ({links.length})
-          </h2>
-          <span className="font-mono text-[10px] text-winter/50">Firestore</span>
-        </div>
-        <Button type="button" variant="primary" size="xs" onClick={onAddLink}>
-          <Plus className="h-3.5 w-3.5" />
-          <span>새 링크</span>
-        </Button>
+    <div className={SECTION}>
+      <div className="flex items-center gap-1.5">
+        <Link2 className="h-4 w-4 text-wharf" aria-hidden="true" />
+        <h2 className="text-xs font-bold tracking-wider text-winter uppercase">
+          링크 ({count})
+        </h2>
       </div>
-
-      <div className="flex flex-col gap-2">
-        {status === "loading" && links.length === 0 && (
-          <p className="py-2 text-center text-[11px] text-winter/60">
-            Firestore에서 링크를 불러오는 중...
-          </p>
-        )}
-        {links.map((link, index) => (
-          <div
-            key={link.id}
-            className="flex items-center gap-2 rounded-[0.5rem] border border-winter/20 bg-winter/12 p-2.5 backdrop-blur-md"
-          >
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[4px] border border-winter/20 bg-cedar/45">
-              <LinkIcon iconType={link.iconType} className="h-4 w-4" />
-            </div>
-
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5">
-                <span className="truncate text-xs font-semibold text-winter">
-                  {link.title}
-                </span>
-                {link.badge && (
-                  <Badge
-                    variant={link.badge === "NEW" ? "pink" : "purple"}
-                    className="px-1 py-0 text-[10px]"
-                  >
-                    {link.badge}
-                  </Badge>
-                )}
-              </div>
-              <p className="truncate text-[11px] text-winter/70">
-                {link.subtitle || link.href}
-              </p>
-            </div>
-
-            {/* 순서 변경 및 수정/삭제 컨트롤 */}
-            <div className="flex shrink-0 items-center gap-1">
-              <button
-                type="button"
-                onClick={() => moveLink(index, "up")}
-                disabled={index === 0}
-                aria-label={`${link.title} 위로 이동`}
-                className="inline-flex size-6 cursor-pointer items-center justify-center rounded-[4px] border border-winter/15 bg-winter/8 text-winter/80 transition-colors hover:bg-winter/20 disabled:pointer-events-none disabled:opacity-30"
-              >
-                <ArrowUp className="size-3" />
-              </button>
-              <button
-                type="button"
-                onClick={() => moveLink(index, "down")}
-                disabled={index === links.length - 1}
-                aria-label={`${link.title} 아래로 이동`}
-                className="inline-flex size-6 cursor-pointer items-center justify-center rounded-[4px] border border-winter/15 bg-winter/8 text-winter/80 transition-colors hover:bg-winter/20 disabled:pointer-events-none disabled:opacity-30"
-              >
-                <ArrowDown className="size-3" />
-              </button>
-              <Button
-                type="button"
-                variant="glass"
-                size="xs"
-                onClick={() => onEditLink(link)}
-                aria-label={`${link.title} 수정`}
-              >
-                수정
-              </Button>
-              <Button
-                type="button"
-                variant="destructive"
-                size="icon-xs"
-                onClick={() => deleteLink(link.id)}
-                aria-label={`${link.title} 삭제`}
-              >
-                <Trash2 className="size-3" />
-              </Button>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <Button
-        type="button"
-        variant="glass"
-        size="default"
-        onClick={onAddLink}
-        className="mt-1 w-full border-dashed border-winter/35 bg-winter/10 hover:bg-winter/18"
+      <p className="text-[11px] leading-relaxed text-winter/70">
+        링크 추가·수정·삭제와 순서 변경은 <strong className="font-semibold text-winter">내 링크 관리</strong>에서 해요.
+        바꾼 내용은 메인 카드에 바로 반영돼요.
+      </p>
+      <Link
+        href="/mypage"
+        className={buttonVariants({ variant: "glass", size: "sm", className: "w-full" })}
       >
-        <Plus className="h-4 w-4" />
-        <span>새 링크 추가하기</span>
-      </Button>
+        <ListPlus className="h-3.5 w-3.5" />
+        <span>내 링크 관리로 이동</span>
+        <ArrowRight className="h-3.5 w-3.5" />
+      </Link>
     </div>
   );
 }

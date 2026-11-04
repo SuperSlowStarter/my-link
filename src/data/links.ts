@@ -30,7 +30,6 @@ export interface ProfileData {
   name: string;
   role: string;
   bio: string;
-  avatarImageUrl?: string;
   skills: string[];
   showreel: ShowreelConfig;
   links: LinkItem[];
@@ -129,7 +128,6 @@ export const DEFAULT_PROFILE_DATA: ProfileData = {
   name: "이대건",
   role: "Motion Graphic Designer",
   bio: "움직임으로 이야기를 전하는 모션그래픽 디자이너입니다.\n브랜드의 메시지를 감각적인 영상으로 만듭니다.",
-  avatarImageUrl: "",
   skills: DEFAULT_SKILLS,
   showreel: DEFAULT_SHOWREEL,
   links: DUMMY_LINKS,
@@ -150,4 +148,3 @@ export function extractYoutubeVideoId(url: string): string | null {
   const match = trimmed.match(regExp);
   return match ? match[1] : null;
 }
-

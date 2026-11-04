@@ -38,7 +38,7 @@ export function AccountPanel() {
       className="flex flex-col gap-3 rounded-[0.5rem] border border-winter/[0.08] bg-crow/40 p-3.5"
     >
       <div className="flex items-center gap-3">
-        <UserAvatar name={name} photoURL={profile?.photoURL || user.photoURL} size={40} />
+        <UserAvatar photoURL={profile?.photoURL || user.photoURL} size={40} />
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-winter">@{name}</p>
           <p className="truncate font-mono text-[10px] text-winter/50" title={`users/${user.uid}`}>

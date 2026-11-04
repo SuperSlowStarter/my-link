@@ -49,7 +49,6 @@ function sanitizeProfile(parsed: Partial<ProfileData> | null | undefined): Profi
     name: pick("name", isString),
     role: pick("role", isString),
     bio: pick("bio", isString),
-    avatarImageUrl: pick("avatarImageUrl", isString),
     skills: pick("skills", Array.isArray),
     showreel:
       parsed.showreel && typeof parsed.showreel === "object"

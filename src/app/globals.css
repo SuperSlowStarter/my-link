@@ -295,6 +295,24 @@
   }
 }
 
+/* 소개 페이지 미리보기 카드: 천천히 떠오르고 가라앉기 (ease-swoosh 왕복) */
+@keyframes floatY {
+  from {
+    transform: translateY(0) rotate(0deg);
+  }
+  to {
+    transform: translateY(-14px) rotate(-1deg);
+  }
+}
+.animate-float {
+  animation: floatY 3.6s var(--ease-swoosh) infinite alternate;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-float {
+    animation: none;
+  }
+}
+
 /* Sonner 알림: 들어올 때·나갈 때 확 치고 길게 감속 (기본 ease 대신) */
 [data-sonner-toast] {
   transition-timing-function: var(--ease-punch) !important;

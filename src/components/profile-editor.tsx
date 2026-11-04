@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import Link from "next/link";
 import {
   ArrowRight,
-  Image as ImageIcon,
   Link2,
   ListPlus,
   Plus,
@@ -23,7 +22,9 @@ import {
   type ShowreelValues,
   type SkillValues,
 } from "@/lib/schemas";
+import { useAuthStore } from "@/store/auth-store";
 import { useLinksStore } from "@/store/links-store";
+import { UserAvatar } from "@/components/user-avatar";
 import { useProfileStore } from "@/store/profile-store";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -70,18 +71,16 @@ export function ProfileEditor() {
 function ProfileInfoSection() {
   const profile = useProfileStore((state) => state.profile);
   const updateProfile = useProfileStore((state) => state.updateProfile);
-  const [avatarLoadError, setAvatarLoadError] = useState(false);
+  const photoURL = useAuthStore((state) => state.profile?.photoURL || state.user?.photoURL || "");
 
   const {
     register,
-    control,
     subscribe,
     formState: { errors },
   } = useForm<ProfileInfoValues>({
     resolver: zodResolver(profileInfoSchema),
     mode: "onChange",
     defaultValues: {
-      avatarImageUrl: profile.avatarImageUrl ?? "",
       name: profile.name,
       role: profile.role,
       bio: profile.bio,
@@ -102,50 +101,22 @@ function ProfileInfoSection() {
     [subscribe, updateProfile]
   );
 
-  const avatarUrl = useWatch({ control, name: "avatarImageUrl" });
-  const name = useWatch({ control, name: "name" });
-  const showImage = avatarUrl && !errors.avatarImageUrl && !avatarLoadError;
 
   return (
     <div className={SECTION}>
-      <div className="flex items-start gap-3">
-        <div className="relative flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full border border-winter/35 bg-winter/15 text-xl font-bold text-winter">
-          {showImage ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={avatarUrl}
-              alt={profile.name}
-              onError={() => setAvatarLoadError(true)}
-              className="h-full w-full object-cover"
-            />
-          ) : (
-            <span>{(name || profile.name).trim().slice(0, 1) || "?"}</span>
-          )}
-        </div>
-        <div className="min-w-0 flex-1">
-          <Label htmlFor="edit-avatar-url" className="mb-1">
-            프로필 이미지 URL (미입력 시 이름 첫 글자 표시)
-          </Label>
-          <div className="relative">
-            <Input
-              id="edit-avatar-url"
-              inputMode="url"
-              placeholder="https://... 이미지 주소 입력"
-              className="pr-8 text-xs"
-              aria-invalid={errors.avatarImageUrl ? true : undefined}
-              {...register("avatarImageUrl", {
-                onChange: () => setAvatarLoadError(false),
-              })}
-            />
-            <ImageIcon
-              className="pointer-events-none absolute top-1/2 right-2.5 h-3.5 w-3.5 -translate-y-1/2 text-winter/45"
-              aria-hidden="true"
-            />
-          </div>
-          <FieldError message={errors.avatarImageUrl?.message} />
-          {avatarLoadError && !errors.avatarImageUrl && (
-            <FieldError message="이미지를 불러오지 못했어요. 주소를 확인해주세요." />
-          )}
+      {/* 프로필 사진: Google 계정 사진을 그대로 쓴다 */}
+      <div className="flex items-center gap-3">
+        <UserAvatar photoURL={photoURL} size={56} alt={profile.name} />
+        <div className="min-w-0 flex-1 text-[11px] leading-relaxed text-winter/65">
+          <p className="font-medium text-winter/85">프로필 사진은 Google 계정 사진을 써요.</p>
+          <a
+            href="https://myaccount.google.com/personal-info"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-hearth underline-offset-4 hover:underline"
+          >
+            Google 계정에서 사진 바꾸기 ↗
+          </a>
         </div>
       </div>
 

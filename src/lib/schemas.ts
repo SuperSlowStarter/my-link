@@ -41,15 +41,6 @@ export const hrefSchema = z
     "https://로 시작하는 주소나 mailto:이메일 형식으로 입력해주세요."
   );
 
-/** 비워도 되는 이미지 URL */
-const optionalImageUrlSchema = z
-  .string()
-  .trim()
-  .refine(
-    (value) => value === "" || isHttpUrl(value),
-    "이미지 주소는 https://로 시작해야 해요. 비워두면 이니셜이 표시돼요."
-  );
-
 /* ------------------------------------------------------------------ */
 /* 링크 (메인 허브 링크 추가·수정 모달)                                  */
 /* ------------------------------------------------------------------ */
@@ -84,7 +75,6 @@ export type QuickLinkValues = z.infer<typeof quickLinkSchema>;
 /* 프로필 기본 정보                                                     */
 /* ------------------------------------------------------------------ */
 export const profileInfoSchema = z.object({
-  avatarImageUrl: optionalImageUrlSchema,
   name: z
     .string()
     .trim()

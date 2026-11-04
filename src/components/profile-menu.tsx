@@ -2,6 +2,7 @@
 
 import type { ComponentType, ReactNode } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Menu } from "@base-ui/react/menu";
 import { toast } from "sonner";
 import { Copy, ExternalLink, House, ListPlus, LogOut, Settings2, UserRound } from "lucide-react";
@@ -112,6 +113,13 @@ export function ProfileMenu() {
   const profile = useAuthStore((state) => state.profile);
   const pending = useAuthStore((state) => state.pending);
   const signOut = useAuthStore((state) => state.signOut);
+  const router = useRouter();
+
+  // 로그아웃하면 소개 페이지(/)로 이동
+  const handleSignOut = async () => {
+    await signOut();
+    router.push("/");
+  };
   const linkCount = useLinksStore((state) => (state.status === "ready" ? state.links.length : null));
 
   if (!user) return null;
@@ -127,7 +135,7 @@ export function ProfileMenu() {
         aria-label={`계정 메뉴 열기 (@${name})`}
         className="group relative flex h-9 w-9 cursor-pointer items-center justify-center rounded-full p-0.5 outline-none ring-1 ring-winter/20 transition-[box-shadow,transform] duration-200 ease-punch hover:ring-hearth/60 focus-visible:ring-2 focus-visible:ring-hearth data-[popup-open]:ring-2 data-[popup-open]:ring-hearth active:scale-95"
       >
-        <UserAvatar name={name} photoURL={photoURL} size={32} />
+        <UserAvatar photoURL={photoURL} size={32} />
       </Menu.Trigger>
 
       <Menu.Portal>
@@ -135,7 +143,7 @@ export function ProfileMenu() {
           <Menu.Popup className="w-[264px] origin-[var(--transform-origin)] rounded-[14px] bg-popover p-1.5 text-winter shadow-[0_18px_48px_rgba(12,3,7,0.6),inset_0_1px_1px_rgba(245,236,209,0.1),inset_0_0_18px_rgba(245,236,209,0.04)] backdrop-blur-xl backdrop-saturate-150 outline-none transition-[opacity,transform] duration-200 ease-swoosh data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:-translate-y-1 data-[starting-style]:scale-95 data-[starting-style]:opacity-0">
             {/* 1. 계정 요약 */}
             <div className="flex items-center gap-3 px-2.5 pt-2 pb-2.5">
-              <UserAvatar name={name} photoURL={photoURL} size={40} />
+              <UserAvatar photoURL={photoURL} size={40} />
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold text-winter">@{name}</p>
                 {email && <p className="truncate text-[11px] text-winter/55">{email}</p>}
@@ -206,7 +214,7 @@ export function ProfileMenu() {
             <Menu.Item
               className={`${ITEM} text-danger/90 data-[highlighted]:bg-danger/10 data-[highlighted]:text-danger`}
               disabled={pending}
-              onClick={() => void signOut()}
+              onClick={() => void handleSignOut()}
             >
               <ItemIcon icon={LogOut} tone="danger" />
               <span className="flex-1">로그아웃</span>

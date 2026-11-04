@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -62,6 +63,12 @@ export default function MyPage() {
   // 로그인 상태 (Firebase Auth · Google)
   const authStatus = useAuthStore((state) => state.status);
   const isSignedIn = authStatus === "signedIn";
+
+  // 로그아웃 상태로 들어오면 소개 페이지(/)로 보낸다
+  const router = useRouter();
+  useEffect(() => {
+    if (authStatus === "signedOut") router.replace("/");
+  }, [authStatus, router]);
 
   // 로그인하면 users/{uid}/links 를 불러오고(createdAt 최신순), 변경이 생기면 바로 갱신된다
   useLinksSync();

@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { House, ListPlus } from "lucide-react";
+import { useAuthStore } from "@/store/auth-store";
 import { AuthMenu } from "@/components/auth-menu";
 
 /**
@@ -44,6 +45,8 @@ export function LogoMark({ className = "h-7 w-7" }: { className?: string }) {
 
 export function SiteHeader({ actions }: { actions?: ReactNode }) {
   const pathname = usePathname();
+  // 메뉴(홈·내 링크 관리)는 로그인한 사용자에게만 보인다
+  const isSignedIn = useAuthStore((state) => state.status === "signedIn");
   const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
@@ -78,6 +81,7 @@ export function SiteHeader({ actions }: { actions?: ReactNode }) {
         </Link>
 
         {/* 가운데: 내비게이션 (현재 페이지에 Hearth 밑줄) */}
+        {isSignedIn && (
         <nav aria-label="주 메뉴" className="flex h-full items-stretch gap-1">
           {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
             const active = pathname === href;
@@ -103,6 +107,7 @@ export function SiteHeader({ actions }: { actions?: ReactNode }) {
             );
           })}
         </nav>
+        )}
 
         {/* 오른쪽: 페이지별 버튼 + 로그인 */}
         <div className="ml-auto flex items-center gap-2">

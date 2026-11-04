@@ -162,19 +162,20 @@ flowchart LR
   - 누르면 공용 링크를 같은 문서 ID로 `users/{uid}/links`에 **복사**합니다 (원본은 그대로, 여러 번 눌러도 중복 없음). 기록은 `users/{uid}.legacyLinksImportedAt`.
   - 예전의 localStorage → `users/anonymous` 자동 마이그레이션은 로그인 도입으로 없앴습니다.
   - "기본값 복원"은 프로필(이름·소개·스킬·쇼릴)만 되돌리고, Firestore 링크는 건드리지 않습니다.
-- **보안 규칙 (배포 완료, 2026-11-04):** `firestore.rules` 파일로 관리하고 `firebase deploy --only firestore:rules`로 배포합니다 (`firebase.json`, `.firebaserc`).
+- **보안 규칙·인덱스 (배포 완료, 2026-11-04):** `firestore.rules`, `firestore.indexes.json` 파일로 관리하고 `firebase deploy --only firestore:rules,firestore:indexes`로 배포합니다 (`firebase.json`, `.firebaserc`).
 
   | 경로 | 읽기 | 쓰기 |
   | :--- | :--- | :--- |
   | `users/{userId}/links/{linkId}` | 누구나 (로그인 불필요) | 로그인 + `request.auth.uid == userId` (+ 제목·주소 검사) |
   | `users/{userId}/profile/{docId}` | 누구나 | 로그인 + 본인, `docId == 'main'`, username 형식·길이 검사, `usernames/{username}`이 본인 것 (`getAfter`) |
   | `usernames/{username}` | 누구나 | 만들기: 로그인 + `uid`가 본인 + 형식 검사 / 지우기: 본인 것만 / 수정: 금지 |
+  | `{path=**}/profile/{docId}` (컬렉션 그룹 쿼리) | 누구나 (displayName 중복 확인용) | — (쓰기는 위 profile 규칙) |
   | `users/{userId}` (계정 정보: 이메일 등) | 본인만 | 본인만 |
   | `users/anonymous/links` (이전 공용 링크) | 누구나 | 금지 |
 
   - 슬라이드 예시의 `match /users/{userId}/profile`은 컬렉션 경로라 어떤 문서에도 맞지 않아서, `match /users/{userId}/profile/{docId}`로 작성했습니다.
   - 이메일 같은 개인 정보는 공개 프로필에 두지 않고 본인만 읽는 `users/{uid}`에 둡니다.
-- **보안 규칙 테스트:** `node scripts/test-firestore-rules.mjs` — 로그인하지 않은 방문자 시점에서 Firestore REST API로 8가지를 확인합니다 (배포 후 8/8 통과).
+- **보안 규칙 테스트:** `node scripts/test-firestore-rules.mjs` — 로그인하지 않은 방문자 시점에서 Firestore REST API로 9가지를 확인합니다 (배포 후 9/9 통과).
 
   | 시나리오 | 기대 | 결과 |
   | :--- | :---: | :---: |
@@ -186,6 +187,7 @@ flowchart LR
   | 프로필 쓰기 (로그인 안 함) | 거부 | ✅ 403 |
   | username 차지 (로그인 안 함) | 거부 | ✅ 403 |
   | 공용 링크 쓰기 | 거부 | ✅ 403 |
+  | displayName 중복 확인 쿼리 (`collectionGroup('profile')`) | 허용 | ✅ 200 |
 
   - 로그인한 본인 쓰기 허용·남의 데이터 쓰기 거부는 앱에서 로그인 후 확인합니다 (로컬 에뮬레이터는 Java가 없어 사용하지 않음).
 - **Next.js 참고:** `NEXT_PUBLIC_` 값은 `next build` 시점에 번들에 고정됩니다. 값을 바꾸면 개발 서버 재시작 또는 재빌드가 필요합니다.
@@ -287,6 +289,13 @@ flowchart LR
   - 이 브라우저에 로그인 전에 저장해 둔 소개·직무·스킬·쇼릴이 있으면 첫 로그인 계정이 한 번만 가져갑니다.
 - **username 규칙:** 영문 소문자·숫자·`_`·`-`, 3~20자, 처음과 끝은 영문/숫자. 사이트 경로와 겹치는 이름(`mypage`, `api`, `admin`, `login` 등)은 사용할 수 없습니다.
 - **저장:** `users/{uid}/profile/main`에 기록합니다. username이 바뀌면 같은 트랜잭션 안에서 `usernames/{새 이름}`이 비어 있는지 **중복 체크**하고, 비어 있으면 새 이름을 차지하고 예전 이름을 놓아줍니다. 이미 다른 사람이 쓰면 username 칸 아래에 "이미 사용 중인 username이에요" 오류를 띄웁니다.
+- **Display Name 중복 확인:** displayName을 바꾸려 하면 저장 전에 Firestore에서 같은 displayName을 가진 다른 사용자가 있는지 조회합니다 — `where("displayName", "==", newName)`.
+  - 프로필이 `users/{uid}/profile/main`에 있으므로 모든 사용자의 `profile` 하위 컬렉션을 한 번에 찾는 **컬렉션 그룹 쿼리**(`collectionGroup("profile")`)를 씁니다. (`users/{uid}` 문서는 이메일이 있어 본인만 읽을 수 있어서 대상에서 제외)
+  - 내 프로필은 제외하고, 다른 사용자가 쓰고 있으면 표시 이름 칸 아래에 "이미 다른 사용자가 쓰고 있는 표시 이름이에요" 오류를 띄우고 **저장을 중단**합니다. displayName을 바꾸지 않았으면 조회하지 않습니다.
+  - 비교는 입력값을 앞뒤 공백만 정리한 **정확히 같은 문자열** 기준입니다 (대소문자·띄어쓰기가 다르면 다른 이름).
+  - 필요한 설정: `firestore.indexes.json`의 `profile.displayName` 컬렉션 그룹 인덱스, 보안 규칙 `match /{path=**}/profile/{docId} { allow read: if true; }`.
+  - 참고: 조회와 저장 사이가 트랜잭션이 아니어서, 두 사람이 같은 순간에 같은 이름으로 저장하면 둘 다 통과할 수 있습니다 (username은 트랜잭션으로 막음).
+  - 처음 로그인할 때 자동으로 넣는 기본 displayName(Google 이름)은 중복 확인 대상이 아닙니다.
 - **알림:** 저장에 성공하면 Sonner로 "프로필을 저장했어요" + 내 공개 페이지 주소. 저장 중에는 로딩 오버레이.
 - 폼 위에는 내 공개 페이지 주소(`{도메인}/{username}`)와 새 탭 열기·복사 버튼을 둡니다. 바꾼 내용이 없으면 저장 버튼이 비활성화되고, `되돌리기`로 원래 값으로 돌아갑니다.
 - 결과: **username을 설정하면 `/{username}` 주소가 바로 준비됩니다.**

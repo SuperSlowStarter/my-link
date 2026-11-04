@@ -22,6 +22,7 @@ const joinedFormat = new Intl.DateTimeFormat("ko-KR", { year: "numeric", month: 
  * 마이페이지 상단 프로필 수정 (username · displayName · bio + 저장)
  * - 현재 값을 채워서 보여주고, 저장하면 users/{uid}/profile/main에 기록한다.
  * - username은 저장 전에 중복을 확인하고(트랜잭션), 중복이면 입력 칸 아래에 오류를 띄운다.
+ * - displayName도 바꿀 때 다른 사용자와 같은지 조회하고, 같으면 오류를 띄우고 저장을 중단한다.
  * - 저장되면 Sonner 알림.
  */
 export function ProfileForm({ profile }: { profile: UserProfile }) {
@@ -55,8 +56,9 @@ export function ProfileForm({ profile }: { profile: UserProfile }) {
   const onSubmit = async (values: ProfileBasicsValues) => {
     const result = await saveBasics(values);
     if (!result.ok) {
-      if (result.field === "username") {
-        setError("username", { type: "taken", message: result.message }, { shouldFocus: true });
+      if (result.field) {
+        // 중복이면 해당 칸 아래에 오류를 띄우고 저장을 중단한다
+        setError(result.field, { type: "taken", message: result.message }, { shouldFocus: true });
       } else {
         toast.error("프로필을 저장하지 못했어요", { description: result.message });
       }

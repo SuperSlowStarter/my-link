@@ -30,8 +30,30 @@ const cases = [
   ["공용 링크 쓰기 (users/anonymous/links)", "POST", `users/anonymous/links`, { title: field("x"), url: field("https://x.y") }, "deny"],
 ];
 
+// displayName 중복 확인 쿼리 (컬렉션 그룹 profile, where displayName ==) — 인덱스·규칙이 있어야 200
+{
+  const response = await fetch(`${BASE}:runQuery?key=${KEY}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      structuredQuery: {
+        from: [{ collectionId: "profile", allDescendants: true }],
+        where: { fieldFilter: { field: { fieldPath: "displayName" }, op: "EQUAL", value: { stringValue: "중복 확인 테스트" } } },
+        limit: 5,
+      },
+    }),
+  });
+  cases.push(["__query__", response.status]);
+}
+
 let failed = 0;
 for (const [label, method, path, fields, expected] of cases) {
+  if (label === "__query__") {
+    const pass = method === 200;
+    if (!pass) failed += 1;
+    console.log(`${pass ? "PASS" : "FAIL"}  [허용 기대 → ${method}]  displayName 중복 확인 쿼리 (collectionGroup profile)`);
+    continue;
+  }
   const response = await fetch(`${BASE}/${path}?key=${KEY}`, {
     method,
     headers: { "Content-Type": "application/json" },

@@ -1,6 +1,11 @@
 import {
+  collectionGroup,
   doc,
   getDoc,
+  getDocs,
+  limit,
+  query,
+  where,
   onSnapshot,
   runTransaction,
   serverTimestamp,
@@ -209,12 +214,43 @@ export class UsernameTakenError extends Error {
   }
 }
 
+export class DisplayNameTakenError extends Error {
+  constructor() {
+    super("display-name-taken");
+    this.name = "DisplayNameTakenError";
+  }
+}
+
+/**
+ * Display Name 중복 확인
+ * 같은 displayName을 가진 다른 사용자의 프로필이 있는지 조회한다 — where("displayName", "==", newName).
+ * 프로필은 users/{uid}/profile/main 에 있으므로 모든 사용자의 profile 하위 컬렉션을 한 번에 찾는
+ * 컬렉션 그룹 쿼리를 쓴다 (users/{uid} 문서는 이메일이 있어 본인만 읽을 수 있음).
+ * 필요한 것: firestore.indexes.json의 profile.displayName 컬렉션 그룹 인덱스 + 규칙 match /{path=**}/profile/{docId}
+ */
+export async function isDisplayNameTaken(displayName: string, uid: string): Promise<boolean> {
+  const snapshot = await getDocs(
+    query(collectionGroup(db, "profile"), where("displayName", "==", displayName), limit(5))
+  );
+  // 내 프로필(users/{uid}/profile/main)은 제외
+  return snapshot.docs.some((snap) => snap.ref.parent.parent?.id !== uid);
+}
+
 /**
  * 마이페이지 프로필 저장 (username·displayName·bio)
  * username이 바뀌면 같은 트랜잭션 안에서 중복을 확인하고, 새 이름을 차지한 뒤 예전 이름을 놓아준다.
  * 이미 다른 사람이 쓰는 username이면 UsernameTakenError를 던진다.
+ * displayName이 바뀌면 저장 전에 다른 사용자와 같은지 조회하고, 같으면 DisplayNameTakenError를 던져 저장을 중단한다.
  */
 export async function saveProfileBasics(uid: string, basics: ProfileBasics): Promise<void> {
+  // 1) displayName을 바꾸려는 경우에만 중복 조회
+  const currentSnap = await getDoc(profileDoc(uid));
+  const previousDisplayName = currentSnap.exists() ? (currentSnap.get("displayName") as string) : "";
+  if (basics.displayName !== previousDisplayName && (await isDisplayNameTaken(basics.displayName, uid))) {
+    throw new DisplayNameTakenError();
+  }
+
+  // 2) username 중복 확인 + 저장 (트랜잭션)
   await runTransaction(db, async (transaction) => {
     const ref = profileDoc(uid);
     const current = await transaction.get(ref);

@@ -40,6 +40,11 @@ service cloud.firestore {
       }
     }
 
+    // 모든 사용자의 profile을 한 번에 찾는 컬렉션 그룹 쿼리 (displayName 중복 확인) — 공개 프로필이라 읽기 누구나
+    match /{path=**}/profile/{docId} {
+      allow read: if true;
+    }
+
     // username → uid (중복 방지 + /{username} 주소로 사용자 찾기)
     match /usernames/{username} {
       allow read: if true;

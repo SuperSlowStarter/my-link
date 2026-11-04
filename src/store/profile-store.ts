@@ -10,6 +10,7 @@ import {
   saveProfileBasics,
   subscribeProfile,
   updateProfileDetails,
+  DisplayNameTakenError,
   UsernameTakenError,
   type ProfileBasics,
   type ProfileDetails,
@@ -25,7 +26,9 @@ import { beginLoading } from "@/store/loading-store";
  */
 type ProfileStatus = "idle" | "signedOut" | "loading" | "ready" | "error";
 
-export type SaveBasicsResult = { ok: true } | { ok: false; field?: "username"; message: string };
+export type SaveBasicsResult =
+  | { ok: true }
+  | { ok: false; field?: "username" | "displayName"; message: string };
 
 interface ProfileState {
   uid: string | null;
@@ -87,6 +90,9 @@ export const useProfileStore = create<ProfileState>()((set, get) => {
       } catch (error) {
         if (error instanceof UsernameTakenError) {
           return { ok: false, field: "username", message: "이미 사용 중인 username이에요. 다른 이름을 입력해주세요." };
+        }
+        if (error instanceof DisplayNameTakenError) {
+          return { ok: false, field: "displayName", message: "이미 다른 사용자가 쓰고 있는 표시 이름이에요. 다른 이름을 입력해주세요." };
         }
         if (process.env.NODE_ENV !== "production") console.error("[firestore] 프로필 저장 실패", error);
         return { ok: false, message: describeFirestoreError(error) };

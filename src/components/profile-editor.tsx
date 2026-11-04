@@ -23,6 +23,7 @@ import {
   type ShowreelValues,
   type SkillValues,
 } from "@/lib/schemas";
+import { useLinksStore } from "@/store/links-store";
 import { useProfileStore } from "@/store/profile-store";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -448,9 +449,11 @@ function LinksSection({
   onAddLink: () => void;
   onEditLink: (link: LinkItem) => void;
 }) {
-  const links = useProfileStore((state) => state.profile.links);
-  const deleteLink = useProfileStore((state) => state.deleteLink);
-  const moveLink = useProfileStore((state) => state.moveLink);
+  // 링크는 Firestore(users/anonymous/links)가 원본이다
+  const links = useLinksStore((state) => state.links);
+  const status = useLinksStore((state) => state.status);
+  const deleteLink = useLinksStore((state) => state.deleteLink);
+  const moveLink = useLinksStore((state) => state.moveLink);
 
   return (
     <div className="flex flex-col gap-2.5 rounded-[0.5rem] border border-winter/18 bg-crow/45 p-3.5">
@@ -460,6 +463,7 @@ function LinksSection({
           <h2 className="text-xs font-bold tracking-wider text-winter uppercase">
             링크 목록 관리 ({links.length})
           </h2>
+          <span className="font-mono text-[10px] text-winter/50">Firestore</span>
         </div>
         <Button type="button" variant="primary" size="xs" onClick={onAddLink}>
           <Plus className="h-3.5 w-3.5" />
@@ -468,6 +472,11 @@ function LinksSection({
       </div>
 
       <div className="flex flex-col gap-2">
+        {status === "loading" && links.length === 0 && (
+          <p className="py-2 text-center text-[11px] text-winter/60">
+            Firestore에서 링크를 불러오는 중...
+          </p>
+        )}
         {links.map((link, index) => (
           <div
             key={link.id}

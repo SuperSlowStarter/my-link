@@ -5,7 +5,6 @@ import { persist, type PersistStorage } from "zustand/middleware";
 import {
   DEFAULT_PROFILE_DATA,
   STORAGE_KEY,
-  type LinkItem,
   type ProfileData,
   type ShowreelConfig,
 } from "@/data/links";
@@ -15,6 +14,8 @@ import {
  * - Phase 1: localStorage(`mylink_state_v1`)에 저장한다.
  * - 저장 형식은 기존과 같은 순수 ProfileData JSON이라, 이전에 저장된 데이터를 그대로 읽는다.
  * - Phase 2(DB)로 옮길 때는 아래 profileStorage만 교체하면 된다.
+ * - 링크는 Firestore로 옮겼다 (src/store/links-store.ts). 여기 남은 profile.links는
+ *   최초 1회 마이그레이션 때 이 브라우저의 기존 링크를 읽는 용도로만 쓴다.
  */
 
 type ProfileUpdater = ProfileData | ((prev: ProfileData) => ProfileData);
@@ -33,11 +34,6 @@ interface ProfileState {
 
   addSkill: (skill: string) => void;
   removeSkill: (skill: string) => void;
-
-  addLink: (link: Omit<LinkItem, "id">) => void;
-  updateLink: (id: string, link: Omit<LinkItem, "id">) => void;
-  deleteLink: (id: string) => void;
-  moveLink: (index: number, direction: "up" | "down") => void;
 
   resetProfile: () => void;
 }
@@ -124,37 +120,6 @@ export const useProfileStore = create<ProfileState>()(
         removeSkill: (skill) => {
           const prev = get().profile;
           commit({ ...prev, skills: prev.skills.filter((item) => item !== skill) });
-        },
-
-        addLink: (link) => {
-          const prev = get().profile;
-          commit({
-            ...prev,
-            links: [...prev.links, { ...link, id: `link-${Date.now()}` }],
-          });
-        },
-
-        updateLink: (id, link) => {
-          const prev = get().profile;
-          commit({
-            ...prev,
-            links: prev.links.map((item) => (item.id === id ? { ...link, id } : item)),
-          });
-        },
-
-        deleteLink: (id) => {
-          const prev = get().profile;
-          commit({ ...prev, links: prev.links.filter((item) => item.id !== id) });
-        },
-
-        moveLink: (index, direction) => {
-          const prev = get().profile;
-          const target = direction === "up" ? index - 1 : index + 1;
-          if (target < 0 || target >= prev.links.length) return;
-          const links = [...prev.links];
-          const [moved] = links.splice(index, 1);
-          links.splice(target, 0, moved);
-          commit({ ...prev, links });
         },
 
         resetProfile: () => {

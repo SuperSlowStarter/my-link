@@ -13,6 +13,7 @@ import {
   RotateCcw,
 } from "lucide-react";
 import type { LinkItem } from "@/data/links";
+import { useLinksStore, useLinksSync } from "@/store/links-store";
 import { useProfileStore } from "@/store/profile-store";
 import { useRimLight } from "@/lib/use-rim-light";
 import { Badge } from "@/components/ui/badge";
@@ -28,14 +29,22 @@ export default function Home() {
   // 마우스 위치에 반응하는 가장자리 림라이트
   useRimLight();
 
-  // Zustand 스토어 (localStorage persist)
+  // 프로필: Zustand + localStorage persist
   const profile = useProfileStore((state) => state.profile);
-  const savedAt = useProfileStore((state) => state.savedAt);
+  const profileSavedAt = useProfileStore((state) => state.savedAt);
   const savedReason = useProfileStore((state) => state.savedReason);
   const resetVersion = useProfileStore((state) => state.resetVersion);
-  const addLink = useProfileStore((state) => state.addLink);
-  const updateLink = useProfileStore((state) => state.updateLink);
   const resetProfile = useProfileStore((state) => state.resetProfile);
+
+  // 링크: Zustand + Firestore(users/anonymous/links) 실시간 구독
+  useLinksSync();
+  const links = useLinksStore((state) => state.links);
+  const linksStatus = useLinksStore((state) => state.status);
+  const linksSavedAt = useLinksStore((state) => state.savedAt);
+  const linksError = useLinksStore((state) => state.error);
+  const clearLinksError = useLinksStore((state) => state.clearError);
+  const addLink = useLinksStore((state) => state.addLink);
+  const updateLink = useLinksStore((state) => state.updateLink);
 
   const [isEditMode, setIsEditMode] = useState(false);
   const [avatarLoadError, setAvatarLoadError] = useState(false);
@@ -50,7 +59,9 @@ export default function Home() {
     void useProfileStore.persist.rehydrate();
   }, []);
 
-  // 저장 알림: 저장될 때마다 2초간 표시
+  // 저장 알림: 프로필(localStorage)·링크(Firestore) 중 마지막 저장을 2초간 표시
+  const linksIsLatest = (linksSavedAt ?? 0) > (profileSavedAt ?? 0);
+  const savedAt = linksIsLatest ? linksSavedAt : profileSavedAt;
   useEffect(() => {
     if (!savedAt) return;
     const timer = window.setTimeout(() => setNoticeHiddenAt(savedAt), 2000);
@@ -58,9 +69,11 @@ export default function Home() {
   }, [savedAt]);
   const saveNotice =
     savedAt && noticeHiddenAt !== savedAt
-      ? savedReason === "reset"
-        ? "초기 기본값으로 복원됨"
-        : "LocalStorage 자동 저장됨"
+      ? linksIsLatest
+        ? "Firestore에 저장됨"
+        : savedReason === "reset"
+          ? "프로필 기본값으로 복원됨"
+          : "LocalStorage 자동 저장됨"
       : null;
 
   const handleOpenAddLink = () => {
@@ -73,9 +86,10 @@ export default function Home() {
     setIsLinkModalOpen(true);
   };
 
+  // 모달은 바로 닫고, Firestore 쓰기 실패는 상단 알림으로 알려준다
   const handleSaveLink = (linkData: Omit<LinkItem, "id">, id?: string) => {
-    if (id) updateLink(id, linkData);
-    else addLink(linkData);
+    if (id) void updateLink(id, linkData);
+    else void addLink(linkData);
   };
 
   const handleResetToDefault = () => {
@@ -89,7 +103,18 @@ export default function Home() {
 
       {/* 상단 플로팅 모드 전환 컨트롤 바 (z-index: 100 per Design.md) */}
       <header className="fixed top-4 right-4 z-[100] flex items-center gap-2">
-        {saveNotice && (
+        {linksError && (
+          <button
+            type="button"
+            role="alert"
+            onClick={clearLinksError}
+            title="닫기"
+            className="animate-snap max-w-[260px] cursor-pointer rounded-[6px] border border-danger/40 bg-crow/90 px-2.5 py-1 text-left text-[11px] font-medium text-danger shadow-sm backdrop-blur-md"
+          >
+            {linksError}
+          </button>
+        )}
+        {saveNotice && !linksError && (
           <span
             key={savedAt}
             role="status"
@@ -222,8 +247,18 @@ export default function Home() {
               <ShowreelBlock showreel={profile.showreel} />
 
               {/* 외부 링크 리스트 (80ms Staggered Entry Cascade) */}
-              {profile.links.length > 0 ? (
-                profile.links.map((link, index) => {
+              {linksStatus === "loading" && links.length === 0 ? (
+                /* 불러오는 중 (Design.md: Skeletons, no spinners) */
+                <div aria-busy="true" aria-label="링크를 불러오는 중" className="flex flex-col gap-2.5">
+                  {[0, 1, 2].map((key) => (
+                    <div
+                      key={key}
+                      className="h-[61px] w-full animate-pulse rounded-[0.5rem] bg-winter/[0.08]"
+                    />
+                  ))}
+                </div>
+              ) : links.length > 0 ? (
+                links.map((link, index) => {
                   const isPrimary = link.variant === "primary";
                   return (
                     <a

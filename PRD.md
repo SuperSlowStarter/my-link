@@ -43,21 +43,24 @@
 
   | 스토어 | 파일 | 영속화 | 역할 |
   | :--- | :--- | :--- | :--- |
-  | `useProfileStore` | `src/store/profile-store.ts` | `persist` → localStorage `mylink_state_v1` | 메인 허브 프로필·쇼릴·링크 |
-  | `useMyPageStore` | `src/store/mypage-store.ts` | 없음 (메모리, M4 실습 범위) | `/mypage` 내 링크 관리 목록 |
+  | `useProfileStore` | `src/store/profile-store.ts` | `persist` → localStorage `mylink_state_v1` | 메인 허브 프로필·기술 스택·쇼릴 |
+  | `useLinksStore` | `src/store/links-store.ts` | **Firestore** `users/anonymous/links` (실시간 구독) | 메인 허브와 `/mypage`가 함께 쓰는 링크 목록·추가·수정·삭제·순서 |
 
 - 저장 형식은 기존과 같은 순수 `ProfileData` JSON이라 이전 데이터가 그대로 읽히며, 일부 값이 깨져 있으면 기본값으로 채워 복구합니다.
 - SSR과 첫 화면을 맞추기 위해 `skipHydration`으로 두고, 브라우저 마운트 후 `persist.rehydrate()`로 불러옵니다.
-- Phase 2에서는 스토어의 Storage Adapter만 DB 연동으로 교체합니다.
+- **링크는 Firestore로 마이그레이션했습니다 (2026-11-04).** `useLinksSync()`가 `onSnapshot`으로 목록을 구독하고, 쓰기는 `src/lib/links-repository.ts`를 거쳐 Firestore로 보냅니다. SDK의 지연 보정 덕분에 화면에는 즉시 반영됩니다.
+- 프로필 정보는 아직 localStorage에 있으며, M6에서 같은 방식으로 Firestore에 옮깁니다.
 
 ```mermaid
 flowchart LR
   UI["MyLink UI (View / Edit Mode)"] --> Form["React Hook Form + Zod<br/>(검사 통과 값만 전달)"]
-  Form --> Store["Zustand Store<br/>useProfileStore"]
-  UI --> Store
-  Store --> Adapter["persist 미들웨어 + Storage Adapter"]
-  Adapter -->|Phase 1: MVP| Local["Browser LocalStorage (Seed Fallback)"]
-  Adapter -.->|Phase 2: Cloud Sync| Cloud["Firebase<br/>Cloud Firestore + Authentication"]
+  Form --> Profile["useProfileStore<br/>(프로필·쇼릴)"]
+  Form --> Links["useLinksStore<br/>(링크)"]
+  UI --> Profile
+  UI --> Links
+  Profile -->|persist| Local["Browser LocalStorage"]
+  Links -->|links-repository| Cloud["Cloud Firestore<br/>users/anonymous/links"]
+  Cloud -->|onSnapshot 실시간| Links
 ```
 
 | 단계 | 저장 방식 | 주요 목표 및 특징 |
@@ -87,6 +90,63 @@ flowchart LR
   - `isFirebaseConfigured` — 필수 값이 비어 있으면 개발 중 콘솔에 경고합니다.
 - **Analytics:** 루트 레이아웃의 `<FirebaseAnalytics />`가 앱 시작 시 한 번 초기화합니다.
 - **보안 메모:** 웹 API 키는 브라우저에 노출되는 공개 식별자이므로, 실제 보호는 **Firestore 보안 규칙**과 Google Cloud 콘솔의 **API 키 제한(허용 도메인)**으로 합니다. M6에서 보안 규칙을 "관리자만 쓰기, 누구나 읽기"로 설정합니다.
+- **Firestore 데이터 구조 (링크):**
+
+  ```text
+  users/{userId}                      사용자 문서
+    linksMigratedAt  timestamp        localStorage → Firestore 링크 이전 완료 시각 (1회)
+    migratedLinkCount number          이전한 링크 개수
+
+  users/{userId}/links/{linkId}       링크 문서 (메인 허브·/mypage 공용)
+    title      string     링크 제목 (필수)
+    url        string     이동 주소 — http(s):// 또는 mailto: (필수)
+    subtitle   string     부제목 (없으면 "")
+    iconType   string     play | youtube | instagram | mail | film | globe | link | sparkles
+    badge      string?    강조 배지 (없으면 필드 자체를 두지 않음)
+    variant    string     primary | glass
+    order      number     표시 순서 (0부터)
+    createdAt  timestamp  serverTimestamp() — 추가 시각
+    updatedAt  timestamp  serverTimestamp() — 마지막 수정·순서 변경 시각
+  ```
+
+  - 로그인 전 단계라 `userId`는 `anonymous`로 고정합니다 (`ANONYMOUS_USER_ID`). Firebase Auth를 붙이면 로그인 사용자의 `uid`로 바꿉니다.
+  - `/mypage`에서 추가한 링크는 `subtitle: ""`, `iconType: "link"`, `variant: "glass"` 기본값으로 저장되어 메인 카드에도 바로 표시됩니다.
+  - 정렬은 `order` 오름차순, 같으면 `createdAt` 오름차순입니다. `order`가 없는 예전 문서는 맨 뒤에 붙습니다.
+  - 저장소 함수: `subscribeLinks`, `addLinkDoc`, `updateLinkDoc`, `deleteLinkDoc`, `reorderLinkDocs`(배치 커밋), `migrateLocalLinks`. 쓰기는 10초 안에 응답이 없으면 오류를 알리고, 실패 문구는 `describeFirestoreError`가 한국어로 만듭니다.
+- **마이그레이션 (localStorage → Firestore, 최초 1회):** 링크 화면이 처음 열릴 때, 이 브라우저에 저장돼 있던 링크(없으면 기본 시드 링크)를 `users/anonymous/links`로 옮깁니다.
+  - `users/anonymous.linksMigratedAt`을 트랜잭션 안에서 확인하므로 여러 탭·기기에서 동시에 열어도 한 번만 실행됩니다.
+  - 기존 링크 id(`link-youtube-channel` 등)를 문서 ID로 그대로 써서 중복되지 않습니다.
+  - 브라우저에는 `mylink_links_migrated_v1` 표시를 남겨 다음부터는 확인 요청도 생략합니다.
+  - "기본값 복원"은 이제 프로필(이름·소개·스킬·쇼릴)만 되돌리고, Firestore 링크는 건드리지 않습니다.
+- **보안 규칙 (권장안, Firebase 콘솔에서 적용):** 지금 경로는 로그인이 없으므로 누구나 읽고 쓸 수 있습니다. 공개 전에는 최소한 아래처럼 필드와 길이를 제한하고, Auth 도입 후에는 쓰기 조건을 `request.auth.uid == userId`로 바꿉니다.
+
+  ```text
+  rules_version = '2';
+  service cloud.firestore {
+    match /databases/{database}/documents {
+      function validLink(data) {
+        return data.keys().hasOnly(['title', 'url', 'subtitle', 'iconType', 'badge', 'variant', 'order', 'createdAt', 'updatedAt'])
+          && data.title is string && data.title.size() > 0 && data.title.size() <= 40
+          && data.url is string && data.url.size() <= 2048
+          && data.subtitle is string && data.subtitle.size() <= 60
+          && data.iconType in ['play', 'youtube', 'instagram', 'mail', 'film', 'globe', 'link', 'sparkles']
+          && data.variant in ['primary', 'glass']
+          && data.order is int
+          && data.updatedAt == request.time;
+      }
+      match /users/anonymous {
+        allow read: if true;
+        allow create, update: if request.resource.data.keys().hasOnly(['linksMigratedAt', 'migratedLinkCount']);
+      }
+      match /users/anonymous/links/{linkId} {
+        allow read: if true;
+        allow create: if validLink(request.resource.data) && request.resource.data.createdAt == request.time;
+        allow update: if validLink(request.resource.data) && request.resource.data.createdAt == resource.data.createdAt;
+        allow delete: if true; // Auth 도입 후 관리자만
+      }
+    }
+  }
+  ```
 - **Next.js 참고:** `NEXT_PUBLIC_` 값은 `next build` 시점에 번들에 고정됩니다. 값을 바꾸면 개발 서버 재시작 또는 재빌드가 필요합니다.
 
 ---
@@ -154,10 +214,12 @@ flowchart LR
 - **폼 요소:** 제목 입력 칸, 주소 입력 칸(세로 배치), `추가` 버튼. 버튼은 프로젝트 팔레트 규칙에 따라 Hearth primary 버튼을 사용합니다 (실습 예시의 보라색 `#5B5FC7` 대신).
 - **동작:**
   1. `추가` 클릭 → 빈 칸·주소 형식 검사 (§3.5)
-  2. 통과 시 목록 하단에 추가
-  3. 입력 칸 자동 비우기 + 제목 칸으로 포커스 이동
-  4. 목록의 휴지통 버튼으로 삭제
-- **저장 범위:** M4에서는 메모리 상태만 사용하므로 **새로고침하면 목록이 사라집니다** (체크리스트 테스트 항목). 영속화는 M5에서 추가합니다.
+  2. 통과 시 Firestore `users/anonymous/links`에 저장 — 저장 중에는 버튼이 `저장 중...`으로 바뀌고 비활성화
+  3. 목록은 Firestore 실시간 구독이라 저장 즉시 반영됨 (실패하면 입력값을 유지하고 폼 아래에 오류 문구 표시)
+  4. 입력 칸 자동 비우기 + 제목 칸으로 포커스 이동
+  5. 휴지통 버튼은 Firestore 문서를 삭제 (메인 카드에서도 즉시 사라짐)
+- **저장 범위:** 목록은 Firestore가 원본이라 **새로고침하거나 다른 기기에서 열어도 유지**됩니다. 메인 허브와 같은 컬렉션을 쓰므로 한쪽에서 추가·삭제하면 다른 쪽에도 바로 반영됩니다.
+  - 참고: M4(7주차) 체크리스트의 "새로고침 → 사라짐 확인"은 메모리 상태였던 당시 단계의 테스트이며, M5에서 Firestore로 옮기면서 "새로고침 → 유지됨"이 기대 결과로 바뀌었습니다.
 
 ---
 
@@ -450,13 +512,13 @@ flowchart TD
 | **M2. 글래스 링크 허브 + 편집 모드** | 완료 | 글래스 카드, 대표 쇼릴 인라인 재생, 편집 모드, 링크 CRUD, localStorage 저장 | 편집 내용이 새로고침 후에도 유지 |
 | **M3. 디자인 시스템 정비** | 완료 | ColorPallete 6색 토큰, 커서 반응형 번짐 림라이트, AE식 비대칭 이징 토큰 | Design.md 규격과 화면 일치 |
 | **M4. 링크 추가 기능 (Create) — 7주차** | 완료 (2026-11-04) | `/mypage` 페이지, 링크 추가 폼(제목·주소·버튼), 추가 시 목록 반영, 입력 칸 자동 비우기, 빈 칸 검증 / Zustand 상태관리, Zod + React Hook Form 유효성 검사 도입 | 체크리스트 6개 항목 통과 (§8.1) |
-| **M5. 목록 영속화 + 수정·삭제 통합** | 예정 | `/mypage` 목록에 `persist` 적용, 수정(Update) 추가, 메인 허브 링크와 하나의 스토어로 통합 | 새로고침 후에도 `/mypage` 목록 유지, 메인 카드에 반영 |
-| **M6. Phase 2 — 클라우드 동기화** | 진행 중 | ✅ Firebase SDK 설치·초기화, 환경 변수, Analytics 연결 (2026-11-04) / ⬜ Firestore 저장소 어댑터, Firebase Auth 관리자 로그인, 보안 규칙, 배포 | 다른 기기의 방문자에게 수정 내용 반영 |
+| **M5. Firestore 링크 CRUD** | 완료 (2026-11-04) | Create·Read(실시간 구독)·Update·Delete·순서 변경을 Firestore `users/anonymous/links`로 이전, 메인 허브와 `/mypage` 링크 통합, localStorage 링크 1회 마이그레이션 | 새로고침·다른 기기에서도 목록 유지, 한쪽 변경이 다른 쪽에 즉시 반영 |
+| **M6. Phase 2 — 클라우드 동기화** | 진행 중 | ✅ Firebase SDK 설치·초기화, 환경 변수, Analytics 연결 (2026-11-04) / ⬜ Firebase Auth 관리자 로그인(`anonymous` → `uid`), 보안 규칙 적용, 프로필 Firestore 저장, 배포 | 다른 기기의 방문자에게 수정 내용 반영 |
 
 ### 8.1 M4 체크리스트 (7주차 실습)
 - [x] `/mypage` 페이지 만들기 — `src/app/mypage/page.tsx`
 - [x] 링크 추가 폼 만들기 (제목, 주소, 버튼)
-- [x] 추가 버튼 클릭 시 목록에 추가 — `useMyPageStore.addLink`
+- [x] 추가 버튼 클릭 시 목록에 추가 — (M4 당시) `useMyPageStore.addLink` → (M5) `useLinksStore.addLink`
 - [x] 입력 칸 자동으로 비우기 — 성공 시 `reset()` + 제목 칸 포커스
 - [x] 빈 칸 검증 추가하기 — `quickLinkSchema` (Zod) + React Hook Form
 - [x] 테스트: 링크 추가 → 새로고침 → 사라짐 확인 — 메모리 상태라 새로고침 시 목록 0개 (브라우저에서 확인)

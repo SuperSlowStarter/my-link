@@ -181,14 +181,14 @@
 
 .glass-rim::before {
   box-shadow:
-    inset 0 1px 1px rgba(245, 236, 209, 0.07),
-    inset 0 0 18px rgba(245, 236, 209, 0.035);
+    inset 0 1px 1px rgba(245, 236, 209, 0.09),
+    inset 0 0 18px rgba(245, 236, 209, 0.045);
 }
 
 .glass-rim::after {
   box-shadow:
-    inset 0 0 1px 0.5px rgba(245, 236, 209, 0.22),
-    inset 0 0 var(--rim-blur) 1px rgba(245, 236, 209, 0.16);
+    inset 0 0 1px 0.5px rgba(245, 236, 209, 0.32),
+    inset 0 0 var(--rim-blur) 1px rgba(245, 236, 209, 0.24);
   -webkit-mask-image: radial-gradient(
     circle var(--rim-size) at var(--rim-x, -999px) var(--rim-y, -999px),
     #000 0%,

@@ -3,10 +3,10 @@
 import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ArrowLeft, ExternalLink, Link2, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, ExternalLink, Link2, Loader2, Plus, Trash2 } from "lucide-react";
 import { quickLinkSchema, type QuickLinkValues } from "@/lib/schemas";
 import { useRimLight } from "@/lib/use-rim-light";
-import { useMyPageStore } from "@/store/mypage-store";
+import { useLinksStore, useLinksSync } from "@/store/links-store";
 import { AmbientBackground } from "@/components/ambient-background";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -15,22 +15,29 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 /**
- * /mypage — 내 링크 관리 (7주차 실습: 링크 추가 기능 / Create)
+ * /mypage — 내 링크 관리
+ * 목록·추가·삭제 모두 Firestore users/anonymous/links 를 쓴다 (메인 허브와 같은 컬렉션).
  * 상단: 제목 / 중간: 추가 폼 / 하단: 목록
  */
 export default function MyPage() {
   useRimLight();
 
-  const links = useMyPageStore((state) => state.links);
-  const addLink = useMyPageStore((state) => state.addLink);
-  const removeLink = useMyPageStore((state) => state.removeLink);
+  // Firestore 실시간 구독 (새로고침해도 목록 유지, 메인 화면과 즉시 동기화)
+  useLinksSync();
+  const links = useLinksStore((state) => state.links);
+  const status = useLinksStore((state) => state.status);
+  const storeError = useLinksStore((state) => state.error);
+  const addLink = useLinksStore((state) => state.addLink);
+  const deleteLink = useLinksStore((state) => state.deleteLink);
 
   const {
     register,
     handleSubmit,
     reset,
     setFocus,
-    formState: { errors },
+    setError,
+    clearErrors,
+    formState: { errors, isSubmitting },
   } = useForm<QuickLinkValues>({
     resolver: zodResolver(quickLinkSchema),
     mode: "onSubmit",
@@ -38,9 +45,25 @@ export default function MyPage() {
     defaultValues: { title: "", href: "" },
   });
 
-  // 검사를 통과하면 목록에 추가 → 입력 칸 자동 비우기 → 다음 입력을 위해 제목 칸에 포커스
-  const onSubmit = (values: QuickLinkValues) => {
-    addLink(values);
+  // 검사 통과 → Firestore에 저장(목록은 구독으로 자동 반영)
+  // → 입력 칸 자동 비우기 → 다음 입력을 위해 제목 칸에 포커스
+  const onSubmit = async (values: QuickLinkValues) => {
+    clearErrors("root");
+    const id = await addLink({
+      title: values.title,
+      href: values.href,
+      // 메인 허브 카드에 필요한 나머지 필드는 기본값
+      subtitle: "",
+      iconType: "link",
+      variant: "glass",
+    });
+    if (!id) {
+      // 실패하면 입력값을 그대로 두어 다시 시도할 수 있게 한다
+      setError("root", {
+        message: useLinksStore.getState().error ?? "링크를 저장하지 못했어요.",
+      });
+      return;
+    }
     reset({ title: "", href: "" });
     requestAnimationFrame(() => setFocus("title"));
   };
@@ -107,10 +130,21 @@ export default function MyPage() {
             <FieldError id="mypage-href-error" message={errors.href?.message} />
           </div>
 
-          <Button type="submit" variant="primary" className="mt-1 w-full">
-            <Plus className="h-4 w-4" />
-            <span>추가</span>
+          <Button
+            type="submit"
+            variant="primary"
+            className="mt-1 w-full"
+            disabled={isSubmitting}
+            aria-busy={isSubmitting}
+          >
+            {isSubmitting ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+            ) : (
+              <Plus className="h-4 w-4" />
+            )}
+            <span>{isSubmitting ? "저장 중..." : "추가"}</span>
           </Button>
+          <FieldError message={errors.root?.message} className="text-center" />
         </form>
 
         <div className="relative z-10 h-px w-full bg-gradient-to-r from-transparent via-winter/18 to-transparent" />
@@ -125,11 +159,21 @@ export default function MyPage() {
               링크 목록 ({links.length})
             </h2>
             <span className="font-mono text-[10px] text-winter/50">
-              새로고침하면 초기화돼요
+              Firestore 실시간 동기화
             </span>
           </div>
 
-          {links.length > 0 ? (
+          {status === "error" && links.length === 0 ? (
+            <p role="alert" className="rounded-[0.5rem] border border-danger/30 bg-danger/10 p-4 text-center text-xs text-danger">
+              {storeError ?? "링크를 불러오지 못했어요."}
+            </p>
+          ) : status !== "ready" && links.length === 0 ? (
+            <div aria-busy="true" aria-label="링크를 불러오는 중" className="flex flex-col gap-2">
+              {[0, 1].map((key) => (
+                <div key={key} className="h-[54px] animate-pulse rounded-[0.5rem] bg-winter/[0.08]" />
+              ))}
+            </div>
+          ) : links.length > 0 ? (
             <ul className="flex flex-col gap-2">
               {links.map((link, index) => (
                 <li
@@ -158,7 +202,7 @@ export default function MyPage() {
                     type="button"
                     variant="destructive"
                     size="icon-xs"
-                    onClick={() => removeLink(link.id)}
+                    onClick={() => void deleteLink(link.id)}
                     aria-label={`${link.title} 삭제`}
                     className="relative z-10"
                   >

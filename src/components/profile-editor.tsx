@@ -82,8 +82,6 @@ function ProfileInfoSection() {
     mode: "onChange",
     defaultValues: {
       avatarImageUrl: profile.avatarImageUrl ?? "",
-      avatarText: profile.avatarText,
-      fpsBadge: profile.fpsBadge,
       name: profile.name,
       role: profile.role,
       bio: profile.bio,
@@ -105,7 +103,7 @@ function ProfileInfoSection() {
   );
 
   const avatarUrl = useWatch({ control, name: "avatarImageUrl" });
-  const avatarText = useWatch({ control, name: "avatarText" });
+  const name = useWatch({ control, name: "name" });
   const showImage = avatarUrl && !errors.avatarImageUrl && !avatarLoadError;
 
   return (
@@ -121,12 +119,12 @@ function ProfileInfoSection() {
               className="h-full w-full object-cover"
             />
           ) : (
-            <span>{avatarText || profile.name.slice(0, 1) || "이"}</span>
+            <span>{(name || profile.name).trim().slice(0, 1) || "?"}</span>
           )}
         </div>
         <div className="min-w-0 flex-1">
           <Label htmlFor="edit-avatar-url" className="mb-1">
-            프로필 이미지 URL (미입력 시 이니셜 표시)
+            프로필 이미지 URL (미입력 시 이름 첫 글자 표시)
           </Label>
           <div className="relative">
             <Input
@@ -148,33 +146,6 @@ function ProfileInfoSection() {
           {avatarLoadError && !errors.avatarImageUrl && (
             <FieldError message="이미지를 불러오지 못했어요. 주소를 확인해주세요." />
           )}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-2.5">
-        <div>
-          <Label htmlFor="edit-avatar-text" className="mb-1">
-            아바타 이니셜
-          </Label>
-          <Input
-            id="edit-avatar-text"
-            placeholder="이"
-            aria-invalid={errors.avatarText ? true : undefined}
-            {...register("avatarText")}
-          />
-          <FieldError message={errors.avatarText?.message} />
-        </div>
-        <div>
-          <Label htmlFor="edit-fps-badge" className="mb-1">
-            포인트 배지
-          </Label>
-          <Input
-            id="edit-fps-badge"
-            placeholder="60FPS"
-            aria-invalid={errors.fpsBadge ? true : undefined}
-            {...register("fpsBadge")}
-          />
-          <FieldError message={errors.fpsBadge?.message} />
         </div>
       </div>
 

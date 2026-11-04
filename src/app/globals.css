@@ -214,6 +214,92 @@
   }
 }
 
+/*
+ * 전체 화면 로딩 오버레이 (src/components/loading-overlay.tsx)
+ * - 회전: 한 바퀴마다 천천히 → 슉 → 천천히 (ease-swoosh, 85% / 85%)
+ * - 로고 숨쉬기: 길게 모았다가 탁 (ease-snap) 왕복
+ */
+@keyframes overlayIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.animate-overlay-in {
+  animation: overlayIn 220ms var(--ease-swoosh) both;
+}
+
+@keyframes loaderSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.animate-loader-spin {
+  transform-origin: 50% 50%;
+  animation: loaderSpin 1.1s var(--ease-swoosh) infinite;
+}
+
+@keyframes loaderPulse {
+  0%,
+  100% {
+    transform: scale(0.9);
+    opacity: 0.85;
+  }
+  50% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+.animate-loader-pulse {
+  animation: loaderPulse 1.1s var(--ease-snap) infinite;
+}
+
+/* 문구 뒤 점 세 개가 하나씩 늘어난다 */
+@keyframes loaderDots {
+  0% {
+    content: "";
+  }
+  25% {
+    content: ".";
+  }
+  50% {
+    content: "..";
+  }
+  75%,
+  100% {
+    content: "...";
+  }
+}
+.loader-dots::after {
+  content: "";
+  display: inline-block;
+  width: 1.2em;
+  text-align: left;
+  animation: loaderDots 1.4s steps(1, end) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-overlay-in,
+  .animate-loader-pulse {
+    animation: none;
+  }
+  /* 회전 대신 천천히 깜빡이기만 */
+  .animate-loader-spin {
+    animation: loaderPulse 1.6s var(--ease-swoosh) infinite;
+  }
+  .loader-dots::after {
+    animation: none;
+    content: "...";
+  }
+}
+
+/* Sonner 알림: 들어올 때·나갈 때 확 치고 길게 감속 (기본 ease 대신) */
+[data-sonner-toast] {
+  transition-timing-function: var(--ease-punch) !important;
+}
+
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }

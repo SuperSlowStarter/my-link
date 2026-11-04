@@ -4,10 +4,11 @@ import {
   deleteDoc,
   deleteField,
   doc,
+  getDoc,
+  getDocs,
   onSnapshot,
   orderBy,
   query,
-  runTransaction,
   serverTimestamp,
   updateDoc,
   writeBatch,
@@ -20,11 +21,13 @@ import { LINK_ICON_OPTIONS, type LinkIconType, type LinkItem } from "@/data/link
 import { db, isFirebaseConfigured } from "@/lib/firebase";
 
 /**
- * Firestore 링크 저장소 — 메인 허브와 /mypage가 함께 쓰는 단일 원본
- * 경로: users/{userId}/links/{linkId}
- * 로그인 전 단계라 userId는 "anonymous"로 고정한다. Firebase Auth를 붙이면 uid로 바꾼다.
+ * Firestore 링크 저장소 — 로그인한 사용자별 개인 링크
+ * 경로: users/{uid}/links/{linkId}
+ * 모든 함수는 Firebase Auth의 user.uid를 받는다. 로그인 전에는 호출하지 않는다.
  */
-export const ANONYMOUS_USER_ID = "anonymous";
+
+/** 로그인 기능 도입 전에 쓰던 공용 경로 (users/anonymous/links) — 가져오기 전용 */
+export const LEGACY_ANONYMOUS_ID = "anonymous";
 
 /** 화면에서 쓰는 링크 + 정렬 정보 */
 export interface StoredLink extends LinkItem {
@@ -51,12 +54,13 @@ export interface LinkDocument {
 
 const ICON_TYPES = new Set<string>(LINK_ICON_OPTIONS.map((option) => option.value));
 
-const userDoc = (userId: string) => doc(db, "users", userId);
-const linksCollection = (userId: string) => collection(db, "users", userId, "links");
-const linkDoc = (userId: string, linkId: string) => doc(db, "users", userId, "links", linkId);
+const userDoc = (uid: string) => doc(db, "users", uid);
+const linksCollection = (uid: string) => collection(db, "users", uid, "links");
+const linkDoc = (uid: string, linkId: string) => doc(db, "users", uid, "links", linkId);
 
-function assertConfigured() {
+function assertReady(uid: string) {
   if (!isFirebaseConfigured) throw new Error("not-configured");
+  if (!uid) throw new Error("unauthenticated");
 }
 
 /** 화면 입력값 → Firestore 필드 (타임스탬프 제외) */
@@ -98,24 +102,24 @@ export function sortByOrder(links: StoredLink[]): StoredLink[] {
 /* Read — 실시간 구독 (createdAt 최신순)                                 */
 /* ------------------------------------------------------------------ */
 /**
- * 페이지가 열리면 users/{userId}/links 를 createdAt 내림차순(최신순)으로 불러오고,
+ * users/{uid}/links 를 createdAt 내림차순(최신순)으로 불러오고,
  * 이후 추가·수정·삭제가 생길 때마다 onChange가 다시 호출된다.
  * 방금 추가한 문서는 서버 시각이 정해지기 전에도 추정 시각으로 맨 위에 온다.
  */
 export function subscribeLinks(
+  uid: string,
   onChange: (links: StoredLink[]) => void,
-  onError: (error: unknown) => void,
-  userId: string = ANONYMOUS_USER_ID
+  onError: (error: unknown) => void
 ): Unsubscribe {
-  assertConfigured();
+  assertReady(uid);
   return onSnapshot(
-    query(linksCollection(userId), orderBy("createdAt", "desc")),
+    query(linksCollection(uid), orderBy("createdAt", "desc")),
     (snapshot) => {
-      const links = snapshot.docs.map((snap) =>
-        // 서버 시각이 아직 안 정해진 직후에도 정렬이 흔들리지 않게 추정값을 쓴다
-        fromDocument(snap.id, snap.data({ serverTimestamps: "estimate" }))
+      onChange(
+        snapshot.docs.map((snap) =>
+          fromDocument(snap.id, snap.data({ serverTimestamps: "estimate" }))
+        )
       );
-      onChange(links);
     },
     onError
   );
@@ -144,12 +148,8 @@ function withTimeout<T>(promise: Promise<T>): Promise<T> {
 }
 
 /** 링크 추가. createdAt·updatedAt은 serverTimestamp로 채우고 새 문서 ID를 돌려준다 */
-export async function addLinkDoc(
-  input: LinkInput,
-  order: number,
-  userId: string = ANONYMOUS_USER_ID
-): Promise<string> {
-  assertConfigured();
+export async function addLinkDoc(uid: string, input: LinkInput, order: number): Promise<string> {
+  assertReady(uid);
   const data: LinkDocument = {
     ...toFields(input),
     ...(input.badge ? { badge: input.badge } : {}),
@@ -157,19 +157,15 @@ export async function addLinkDoc(
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   };
-  const ref = await withTimeout(addDoc(linksCollection(userId), data));
+  const ref = await withTimeout(addDoc(linksCollection(uid), data));
   return ref.id;
 }
 
 /** 링크 수정. updatedAt만 새 서버 시각으로 바뀐다 */
-export async function updateLinkDoc(
-  id: string,
-  input: LinkInput,
-  userId: string = ANONYMOUS_USER_ID
-): Promise<void> {
-  assertConfigured();
+export async function updateLinkDoc(uid: string, id: string, input: LinkInput): Promise<void> {
+  assertReady(uid);
   await withTimeout(
-    updateDoc(linkDoc(userId, id), {
+    updateDoc(linkDoc(uid, id), {
       ...toFields(input),
       badge: input.badge ? input.badge : deleteField(),
       updatedAt: serverTimestamp(),
@@ -177,63 +173,64 @@ export async function updateLinkDoc(
   );
 }
 
-export async function deleteLinkDoc(
-  id: string,
-  userId: string = ANONYMOUS_USER_ID
-): Promise<void> {
-  assertConfigured();
-  await withTimeout(deleteDoc(linkDoc(userId, id)));
+export async function deleteLinkDoc(uid: string, id: string): Promise<void> {
+  assertReady(uid);
+  await withTimeout(deleteDoc(linkDoc(uid, id)));
 }
 
 /** 순서 변경: 전달된 id 순서대로 order를 0부터 다시 매긴다 (한 번에 커밋) */
-export async function reorderLinkDocs(
-  orderedIds: string[],
-  userId: string = ANONYMOUS_USER_ID
-): Promise<void> {
-  assertConfigured();
+export async function reorderLinkDocs(uid: string, orderedIds: string[]): Promise<void> {
+  assertReady(uid);
   const batch = writeBatch(db);
   orderedIds.forEach((id, index) => {
-    batch.update(linkDoc(userId, id), { order: index, updatedAt: serverTimestamp() });
+    batch.update(linkDoc(uid, id), { order: index, updatedAt: serverTimestamp() });
   });
   await withTimeout(batch.commit());
 }
 
 /* ------------------------------------------------------------------ */
-/* 마이그레이션: localStorage 링크 → Firestore (최초 1회)               */
+/* 이전 공용 링크 가져오기: users/anonymous/links → users/{uid}/links    */
 /* ------------------------------------------------------------------ */
-/**
- * users/{userId} 문서의 linksMigratedAt 표시로 1회만 실행한다.
- * 트랜잭션이라 여러 탭에서 동시에 열어도 한 번만 기록된다.
- * 기존 링크 id를 그대로 문서 ID로 써서 다시 실행돼도 중복되지 않는다.
- * @returns 이번에 이전했으면 true, 이미 이전돼 있었으면 false
- */
-export async function migrateLocalLinks(
-  localLinks: LinkItem[],
-  userId: string = ANONYMOUS_USER_ID
-): Promise<boolean> {
-  assertConfigured();
-  return runTransaction(db, async (transaction) => {
-    const userRef = userDoc(userId);
-    const userSnap = await transaction.get(userRef);
-    if (userSnap.exists() && userSnap.get("linksMigratedAt")) return false;
+/** 로그인 전 공용 경로에 링크가 몇 개 있는지 (가져오기 버튼 표시용) */
+export async function countLegacyLinks(): Promise<number> {
+  if (!isFirebaseConfigured) return 0;
+  const snapshot = await getDocs(linksCollection(LEGACY_ANONYMOUS_ID));
+  return snapshot.size;
+}
 
-    localLinks.forEach((link, index) => {
-      const data: LinkDocument = {
-        ...toFields(link),
-        ...(link.badge ? { badge: link.badge } : {}),
-        order: index,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      };
-      transaction.set(linkDoc(userId, link.id), data);
-    });
-    transaction.set(
-      userRef,
-      { linksMigratedAt: serverTimestamp(), migratedLinkCount: localLinks.length },
-      { merge: true }
-    );
-    return true;
+/**
+ * 공용 경로의 링크를 내 경로로 복사한다 (원본은 그대로 둔다).
+ * 같은 문서 ID를 써서 여러 번 눌러도 중복되지 않고, users/{uid}.legacyLinksImportedAt 에 기록한다.
+ * @returns 복사한 링크 개수
+ */
+export async function importLegacyLinks(uid: string): Promise<number> {
+  assertReady(uid);
+  const snapshot = await getDocs(linksCollection(LEGACY_ANONYMOUS_ID));
+  const userSnap = await getDoc(userDoc(uid));
+  const batch = writeBatch(db);
+
+  const legacy = sortByOrder(snapshot.docs.map((snap) => fromDocument(snap.id, snap.data())));
+  legacy.forEach((link, index) => {
+    const data: LinkDocument = {
+      ...toFields(link),
+      ...(link.badge ? { badge: link.badge } : {}),
+      order: index,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    };
+    batch.set(linkDoc(uid, link.id), data);
   });
+  batch.set(
+    userDoc(uid),
+    {
+      legacyLinksImportedAt: serverTimestamp(),
+      legacyLinksImportedCount: legacy.length,
+      ...(userSnap.exists() ? {} : { createdAt: serverTimestamp() }),
+    },
+    { merge: true }
+  );
+  await withTimeout(batch.commit());
+  return legacy.length;
 }
 
 /* ------------------------------------------------------------------ */
@@ -249,7 +246,9 @@ export function describeFirestoreError(error: unknown): string {
 
   switch (code) {
     case "permission-denied":
-      return "저장 권한이 없어요. Firestore 보안 규칙을 확인해주세요.";
+      return "권한이 없어요. 로그인 상태와 Firestore 보안 규칙을 확인해주세요.";
+    case "unauthenticated":
+      return "로그인이 필요해요.";
     case "unavailable":
       return "Firestore에 연결하지 못했어요. 네트워크를 확인해주세요.";
     case "timeout":

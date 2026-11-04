@@ -2,6 +2,9 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { FirebaseAnalytics } from "@/components/firebase-analytics";
+import { AuthListener } from "@/components/auth-listener";
+import { LoadingOverlay } from "@/components/loading-overlay";
+import { AppToaster } from "@/components/app-toaster";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -33,6 +36,9 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col" suppressHydrationWarning>
         {children}
         <FirebaseAnalytics />
+        <AuthListener />
+        <LoadingOverlay />
+        <AppToaster />
       </body>
     </html>
   );

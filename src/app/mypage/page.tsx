@@ -12,6 +12,7 @@ import {
   Link2,
   Loader2,
   Pencil,
+  Download,
   Plus,
   SlidersHorizontal,
   Trash2,
@@ -19,7 +20,11 @@ import {
 import type { LinkItem } from "@/data/links";
 import { quickLinkSchema, type QuickLinkValues } from "@/lib/schemas";
 import { useRimLight } from "@/lib/use-rim-light";
+import { useAuthStore } from "@/store/auth-store";
 import { useLinksStore, useLinksSync } from "@/store/links-store";
+import { AccountPanel } from "@/components/account-panel";
+import { SiteHeader } from "@/components/site-header";
+import { LoginRequired } from "@/components/login-required";
 import { AmbientBackground } from "@/components/ambient-background";
 import { LinkFormModal } from "@/components/link-form-modal";
 import { LinkIcon } from "@/components/link-icon";
@@ -33,7 +38,8 @@ import { Label } from "@/components/ui/label";
 /**
  * /mypage — 내 링크 관리 (링크 관리 전용 페이지)
  * 링크 추가·수정·삭제·순서 변경은 모두 여기서 한다. 메인 편집 모드는 프로필·스킬·쇼릴만 다룬다.
- * 데이터 원본: Firestore users/anonymous/links (메인 카드와 같은 컬렉션, 실시간 동기화)
+ * 데이터 원본: Firestore users/{user.uid}/links (Google 로그인 사용자별, 메인 카드와 같은 컬렉션)
+ * 로그인 전에는 폼·목록 대신 로그인 안내를 보여준다.
  * 상단: 제목 / 중간: 빠른 추가 폼 / 하단: 목록 (기본 최신순, '카드 순서' 보기에서 순서 변경)
  */
 
@@ -53,7 +59,11 @@ const ICON_BUTTON =
 export default function MyPage() {
   useRimLight();
 
-  // 페이지가 열리면 Firestore에서 불러오고(createdAt 최신순), 변경이 생기면 바로 갱신된다
+  // 로그인 상태 (Firebase Auth · Google)
+  const authStatus = useAuthStore((state) => state.status);
+  const isSignedIn = authStatus === "signedIn";
+
+  // 로그인하면 users/{uid}/links 를 불러오고(createdAt 최신순), 변경이 생기면 바로 갱신된다
   useLinksSync();
   const latestLinks = useLinksStore((state) => state.links);
   const orderedLinks = useLinksStore((state) => state.orderedLinks);
@@ -64,6 +74,15 @@ export default function MyPage() {
   const updateLink = useLinksStore((state) => state.updateLink);
   const deleteLink = useLinksStore((state) => state.deleteLink);
   const moveLink = useLinksStore((state) => state.moveLink);
+  const legacyCount = useLinksStore((state) => state.legacyCount);
+  const importLegacy = useLinksStore((state) => state.importLegacy);
+  const [importing, setImporting] = useState(false);
+
+  const handleImportLegacy = async () => {
+    setImporting(true);
+    await importLegacy();
+    setImporting(false);
+  };
 
   const [sortMode, setSortMode] = useState<SortMode>("latest");
   const links = sortMode === "latest" ? latestLinks : orderedLinks;
@@ -126,9 +145,13 @@ export default function MyPage() {
   };
 
   return (
-    <main className="relative flex min-h-[100dvh] flex-1 flex-col items-center px-4 py-16 sm:px-6">
+    <>
       <AmbientBackground />
 
+      {/* 사이트 헤더: 로고 · 메뉴 · Google 로그인 */}
+      <SiteHeader />
+
+    <main className="relative flex flex-1 flex-col items-center px-4 py-10 sm:px-6">
       <Card className="animate-glass-entry w-full gap-6 p-[20px] md:w-[80%] md:max-w-[480px] md:p-[28px] lg:w-[400px] lg:max-w-[400px]">
         {/* 상단: 제목 */}
         <header className="relative z-10 flex flex-col gap-3">
@@ -142,10 +165,29 @@ export default function MyPage() {
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-winter">내 링크 관리</h1>
             <p className="mt-1 text-xs text-winter/70">
-              메인 카드에 보이는 링크를 여기서 추가·수정·삭제하고 순서를 바꿔요.
+              {isSignedIn
+                ? "메인 카드에 보이는 내 링크를 여기서 추가·수정·삭제하고 순서를 바꿔요."
+                : "Google 계정으로 로그인하면 나만의 링크 목록을 관리할 수 있어요."}
             </p>
           </div>
         </header>
+
+        {!isSignedIn ? (
+          /* 로그인 전: 사용 방법 안내 */
+          <LoginRequired
+            title="로그인 후 사용할 수 있어요"
+            description="내 링크 관리는 Google 계정으로 로그인한 뒤에 쓸 수 있어요. 링크는 계정마다 따로 저장되고, 다른 기기에서 로그인해도 그대로 보여요."
+            features={[
+              "제목·주소만으로 빠르게 링크 추가",
+              "부제목·아이콘·배지·스타일까지 상세 추가와 수정",
+              "메인 카드에 보이는 순서 바꾸기",
+              "Firestore에 저장되어 새로고침·다른 기기에서도 유지",
+            ]}
+          />
+        ) : (
+          <>
+        {/* 계정 정보: Firestore users/{uid} 문서 */}
+        <AccountPanel />
 
         {/* 중간: 빠른 추가 폼 (입력 칸 세로 배치) */}
         <form
@@ -376,9 +418,33 @@ export default function MyPage() {
               <Link2 className="h-6 w-6 text-hearth" aria-hidden="true" />
               <p className="text-sm font-medium text-winter/90">아직 추가한 링크가 없어요.</p>
               <p className="text-xs text-winter/60">위 폼에서 첫 링크를 추가해보세요.</p>
+              {legacyCount > 0 && (
+                <div className="mt-2 flex flex-col items-center gap-1.5">
+                  <p className="text-[11px] text-winter/60">
+                    로그인 기능 전에 저장한 공용 링크 {legacyCount}개가 있어요.
+                  </p>
+                  <Button
+                    type="button"
+                    variant="glass"
+                    size="sm"
+                    onClick={() => void handleImportLegacy()}
+                    disabled={importing}
+                    aria-busy={importing}
+                  >
+                    {importing ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                    ) : (
+                      <Download className="h-3.5 w-3.5" />
+                    )}
+                    <span>{importing ? "가져오는 중..." : `이전 링크 ${legacyCount}개 가져오기`}</span>
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </section>
+          </>
+        )}
       </Card>
 
       {/* 상세 추가·수정 모달 (Zod + React Hook Form 검사) */}
@@ -390,5 +456,6 @@ export default function MyPage() {
         onSave={handleModalSave}
       />
     </main>
+    </>
   );
 }

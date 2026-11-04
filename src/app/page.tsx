@@ -7,11 +7,11 @@ import {
   Check,
   Film,
   Link2,
-  ListPlus,
   Pencil,
   Plus,
   RotateCcw,
 } from "lucide-react";
+import { useAuthStore } from "@/store/auth-store";
 import { useLinksStore, useLinksSync } from "@/store/links-store";
 import { useProfileStore } from "@/store/profile-store";
 import { useRimLight } from "@/lib/use-rim-light";
@@ -22,6 +22,8 @@ import { LinkIcon } from "@/components/link-icon";
 import { ProfileEditor } from "@/components/profile-editor";
 import { ShowreelBlock } from "@/components/showreel-block";
 import { AmbientBackground } from "@/components/ambient-background";
+import { SiteHeader } from "@/components/site-header";
+import { LoginRequired } from "@/components/login-required";
 
 export default function Home() {
   // 마우스 위치에 반응하는 가장자리 림라이트
@@ -34,7 +36,15 @@ export default function Home() {
   const resetVersion = useProfileStore((state) => state.resetVersion);
   const resetProfile = useProfileStore((state) => state.resetProfile);
 
-  // 링크: Zustand + Firestore(users/anonymous/links) 실시간 구독
+  // 로그인 상태 (Firebase Auth · Google)
+  const authStatus = useAuthStore((state) => state.status);
+  // 푸터 표시 이름: Firestore users/{uid}의 displayName(이메일 앞부분)
+  const footerName = useAuthStore(
+    (state) => state.profile?.displayName || state.user?.displayName || ""
+  );
+  const isSignedIn = authStatus === "signedIn";
+
+  // 링크: Zustand + Firestore(users/{uid}/links) 실시간 구독
   useLinksSync();
   // 메인 카드는 편집 모드에서 직접 정한 순서대로 보여준다
   const links = useLinksStore((state) => state.orderedLinks);
@@ -43,7 +53,9 @@ export default function Home() {
   const linksError = useLinksStore((state) => state.error);
   const clearLinksError = useLinksStore((state) => state.clearError);
 
-  const [isEditMode, setIsEditMode] = useState(false);
+  const [editModeRequested, setIsEditMode] = useState(false);
+  // 편집 모드는 로그인한 상태에서만 열린다 (로그아웃하면 자동으로 보기 모드)
+  const isEditMode = editModeRequested && isSignedIn;
   const [avatarLoadError, setAvatarLoadError] = useState(false);
   const [noticeHiddenAt, setNoticeHiddenAt] = useState<number | null>(null);
 
@@ -75,18 +87,57 @@ export default function Home() {
   };
 
   return (
-    <main className="relative flex min-h-[100dvh] flex-1 flex-col items-center justify-center overflow-x-hidden bg-crow px-6 py-16">
+    <>
       <AmbientBackground />
 
-      {/* 상단 플로팅 모드 전환 컨트롤 바 (z-index: 100 per Design.md) */}
-      <header className="fixed top-4 right-4 z-[100] flex items-center gap-2">
+      {/* 사이트 헤더: 로고 · 메뉴 · 편집 모드 버튼 · Google 로그인 */}
+      <SiteHeader
+        actions={
+          isEditMode ? (
+            <>
+              <Button
+                type="button"
+                variant="glass"
+                size="sm"
+                onClick={handleResetToDefault}
+                title="프로필을 초기 기본값으로 복원"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">기본값 복원</span>
+              </Button>
+              <Button
+                type="button"
+                variant="primary"
+                size="sm"
+                onClick={() => setIsEditMode(false)}
+              >
+                <Check className="h-3.5 w-3.5" />
+                <span>완료</span>
+              </Button>
+            </>
+          ) : isSignedIn ? (
+            <Button
+              type="button"
+              variant="glass"
+              size="sm"
+              onClick={() => setIsEditMode(true)}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">편집 모드</span>
+            </Button>
+          ) : null
+        }
+      />
+
+      {/* 저장·오류 알림 (헤더 아래 우측, z-index toast 500) */}
+      <div className="pointer-events-none fixed top-[68px] right-4 z-[500] flex flex-col items-end gap-2">
         {linksError && (
           <button
             type="button"
             role="alert"
             onClick={clearLinksError}
             title="닫기"
-            className="animate-snap max-w-[260px] cursor-pointer rounded-[6px] border border-danger/40 bg-crow/90 px-2.5 py-1 text-left text-[11px] font-medium text-danger shadow-sm backdrop-blur-md"
+            className="animate-snap pointer-events-auto max-w-[280px] cursor-pointer rounded-[6px] border border-danger/40 bg-crow/90 px-2.5 py-1 text-left text-[11px] font-medium text-danger shadow-sm backdrop-blur-md"
           >
             {linksError}
           </button>
@@ -101,51 +152,9 @@ export default function Home() {
             {saveNotice}
           </span>
         )}
+      </div>
 
-        {isEditMode ? (
-          <>
-            <Button
-              type="button"
-              variant="glass"
-              size="sm"
-              onClick={handleResetToDefault}
-              title="초기 시드 데이터로 복원"
-            >
-              <RotateCcw className="h-3.5 w-3.5" />
-              <span>기본값 복원</span>
-            </Button>
-            <Button
-              type="button"
-              variant="primary"
-              size="sm"
-              onClick={() => setIsEditMode(false)}
-            >
-              <Check className="h-3.5 w-3.5" />
-              <span>완료</span>
-            </Button>
-          </>
-        ) : (
-          <>
-            <Link
-              href="/mypage"
-              className={buttonVariants({ variant: "glass", size: "sm" })}
-            >
-              <ListPlus className="h-3.5 w-3.5" />
-              <span>내 링크 관리</span>
-            </Link>
-            <Button
-              type="button"
-              variant="glass"
-              size="sm"
-              onClick={() => setIsEditMode(true)}
-            >
-              <Pencil className="h-3.5 w-3.5" />
-              <span>편집 모드</span>
-            </Button>
-          </>
-        )}
-      </header>
-
+    <main className="relative flex flex-1 flex-col items-center justify-center overflow-x-hidden px-6 py-12">
       {/* 메인 Glassmorphism 프로필 & 링크 허브 카드 (PRD 5.4 반응형 규격) */}
       <Card className="animate-glass-entry w-full items-center p-[20px] text-center md:w-[80%] md:max-w-[480px] md:p-[28px] lg:w-[400px] lg:max-w-[400px]">
         {!isEditMode ? (
@@ -153,7 +162,7 @@ export default function Home() {
              VIEW MODE (방문자 시점)
              ========================================================= */
           <>
-            {/* 프로필 아바타 (120px x 120px 원형 Glass 프레임 + 60FPS 배지) */}
+            {/* 프로필 아바타 (120px x 120px 원형 Glass 프레임, 사진이 없으면 이름 첫 글자) */}
             <div
               className="relative z-10 flex h-[120px] w-[120px] shrink-0 items-center justify-center rounded-full border border-winter/12 bg-gradient-to-br from-winter/25 via-winter/12 to-winter/5 text-4xl font-bold text-winter shadow-[0_6px_20px_rgba(0,0,0,0.18)] backdrop-blur-md"
             >
@@ -167,19 +176,10 @@ export default function Home() {
                 />
               ) : (
                 <span className="relative z-10 drop-shadow-[0_2px_6px_rgba(30,9,18,0.35)]">
-                  {profile.avatarText || profile.name.slice(0, 1) || "이"}
+                  {profile.name.trim().slice(0, 1) || "?"}
                 </span>
               )}
 
-              {profile.fpsBadge && (
-                <Badge
-                  variant="teal"
-                  title="60 FPS Motion Craft"
-                  className="absolute -right-1 bottom-1 z-30"
-                >
-                  {profile.fpsBadge}
-                </Badge>
-              )}
             </div>
 
             {/* H1 이름 타이포그래피 (Design.md: 2.25rem, weight 700, tight tracking) */}
@@ -223,8 +223,14 @@ export default function Home() {
               {/* 대표 쇼릴 인라인 플레이어 (PRD 3.3, 7.1, 7.2) */}
               <ShowreelBlock showreel={profile.showreel} />
 
-              {/* 외부 링크 리스트 (80ms Staggered Entry Cascade) */}
-              {linksStatus === "loading" && links.length === 0 ? (
+              {/* 외부 링크 리스트 (80ms Staggered Entry Cascade) — 로그인한 사용자의 users/{uid}/links */}
+              {authStatus !== "signedIn" ? (
+                <LoginRequired
+                  compact
+                  title="로그인하면 내 링크가 보여요"
+                  description="링크는 Google 계정별로 따로 저장돼요. 로그인하면 내 링크를 보고, 편집 모드와 내 링크 관리를 쓸 수 있어요."
+                />
+              ) : linksStatus === "loading" && links.length === 0 ? (
                 /* 불러오는 중 (Design.md: Skeletons, no spinners) */
                 <div aria-busy="true" aria-label="링크를 불러오는 중" className="flex flex-col gap-2.5">
                   {[0, 1, 2].map((key) => (
@@ -329,7 +335,7 @@ export default function Home() {
             {/* 하단 푸터 (Monospace 메타데이터) */}
             <footer className="relative z-10 mt-5 text-center">
               <p className="font-mono text-[0.75rem] font-medium text-winter/65">
-                © 2026 Lee Dae-geon
+                © 2026 {authStatus === "signedIn" && footerName ? `@${footerName}` : "MyLink"}
               </p>
             </footer>
           </>
@@ -340,5 +346,6 @@ export default function Home() {
       </Card>
 
     </main>
+    </>
   );
 }

@@ -30,9 +30,7 @@ export interface ProfileData {
   name: string;
   role: string;
   bio: string;
-  avatarText: string;
   avatarImageUrl?: string;
-  fpsBadge: string;
   skills: string[];
   showreel: ShowreelConfig;
   links: LinkItem[];
@@ -131,9 +129,7 @@ export const DEFAULT_PROFILE_DATA: ProfileData = {
   name: "이대건",
   role: "Motion Graphic Designer",
   bio: "움직임으로 이야기를 전하는 모션그래픽 디자이너입니다.\n브랜드의 메시지를 감각적인 영상으로 만듭니다.",
-  avatarText: "이",
   avatarImageUrl: "",
-  fpsBadge: "60FPS",
   skills: DEFAULT_SKILLS,
   showreel: DEFAULT_SHOWREEL,
   links: DUMMY_LINKS,

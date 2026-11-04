@@ -136,7 +136,8 @@ Base corner radius: 4px. Radius grows with element size: 4px (icon box) → 6px 
   - Inner link items: 0.5rem corners, 1px border, shadow `0 2px 12px rgba(0,0,0,0.08)`.
 - **Inputs:** Label above input. 1px border stroke. Focus ring: 2px accent color offset 2px. Error text below in semantic red. No floating labels.
 - **Navigation:** Primary surface background. Active item: accent color indicator. Font weight 500 when active.
-- **Skeletons:** Shimmer animation matching component dimensions. No circular spinners.
+- **Skeletons:** Pulse placeholders matching component dimensions for content that is still loading inside a section.
+- **Loading overlay (updates / refreshes):** While data is being saved, updated or refreshed, a full-page overlay covers the screen: background blurred (`backdrop-blur-md` over `bg-crow/45`), centered glass panel with the logo mark and a Hearth arc spinning around it (`ease-swoosh` per turn), the logo breathing (`ease-snap`), and a short label with animated dots (e.g. "링크 저장 중..."). Shows only if the task takes longer than 250ms and stays at least 400ms. z-index 400 (above modal 300, below toast 500). Reduced motion: no spin, slow fade only. This overlay is the single exception to the "no circular spinners" rule.
 - **Empty States:** Icon-based composition with descriptive text and action button.
 
 

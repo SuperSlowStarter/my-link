@@ -85,12 +85,6 @@ export type QuickLinkValues = z.infer<typeof quickLinkSchema>;
 /* ------------------------------------------------------------------ */
 export const profileInfoSchema = z.object({
   avatarImageUrl: optionalImageUrlSchema,
-  avatarText: z
-    .string()
-    .trim()
-    .min(1, "이니셜을 입력해주세요.")
-    .max(2, "이니셜은 2자 이내예요."),
-  fpsBadge: z.string().trim().max(10, "배지는 10자 이내로 입력해주세요."),
   name: z
     .string()
     .trim()

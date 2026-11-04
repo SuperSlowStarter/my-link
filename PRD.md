@@ -14,7 +14,7 @@
 모션그래픽 디자이너 **이대건**의 작업물(쇼릴, 유튜브, 인스타그램)과 외주 문의 창구를 하나의 URL로 연결하는 개인 전용 링크트리(Linktree) 웹 애플리케이션입니다. 단순한 링크 나열을 넘어, 디자이너의 감각을 보여주는 **ColorPallete 기반 웜 다크 Glassmorphism UI(가장자리 림라이트)**와 **대표 쇼릴 인라인 재생** 경험을 제공하며, 코드 수정 없이 웹 화면에서 즉시 콘텐츠를 관리할 수 있는 **실시간 편집 모드(Edit Mode)**를 지원합니다.
 
 ### 1.2 타겟 사용자
-1. **관리자 (Owner):** 본인(모션그래픽 디자이너 이대건) — 메인 화면의 **편집 모드**에서 프로필·기술 스택·쇼릴 영상을 수정하고, **내 링크 관리(`/mypage`)**에서 외부 링크를 추가·수정·삭제하고 순서를 바꿈.
+1. **관리자 (Owner):** 본인(모션그래픽 디자이너 이대건) — **Google 계정으로 로그인**한 뒤, 메인 화면의 **편집 모드**에서 프로필·기술 스택·쇼릴 영상을 수정하고, **내 링크 관리(`/mypage`)**에서 외부 링크를 추가·수정·삭제하고 순서를 바꿈.
 2. **방문자 (Visitors):** 클라이언트, 채용 담당자, 동료 디자이너 및 구독자 — 데스크탑·태블릿·모바일 환경에서 쇼릴 영상을 감상하고 주요 채널로 이동하거나 프로젝트 문의를 진행.
 
 ---
@@ -30,7 +30,9 @@
 | 폼 | **React Hook Form 7** (+ `@hookform/resolvers`) | 편집 모드(프로필·쇼릴)·/mypage(링크 빠른 추가·상세 모달) 입력 관리 |
 | 유효성 검사 | **Zod 4** | 입력 규칙과 한국어 오류 문구를 스키마 하나로 정의 (`src/lib/schemas.ts`) |
 | 저장소 | Phase 1: 브라우저 `localStorage` / Phase 2: **Firebase** (Cloud Firestore) | §2 로드맵 참조 |
-| 백엔드 (BaaS) | **Firebase 13** — App · Cloud Firestore · Authentication · Analytics (프로젝트 `my-dae-link`) | 초기화 완료(§2.1). Firestore·Auth 연동은 M6 |
+| 백엔드 (BaaS) | **Firebase 13** — App · Cloud Firestore · Authentication · Analytics (프로젝트 `my-dae-link`) | 링크는 Firestore `users/{uid}/links`, 사용자 정보는 `users/{uid}` |
+| 인증 | **Firebase Authentication — Google 소셜 로그인** (`signInWithPopup`, 팝업이 막히면 `signInWithRedirect`) | 헤더 로그인 메뉴, 로그인 전 안내 화면, 사용자별 데이터 분리 (`src/store/auth-store.ts`) |
+| 알림 | **Sonner 2** (`toast`) | 링크 주소 복사 등 짧은 결과 알림 — 짙은 유리 패널, 헤더 아래 우측 (`src/components/app-toaster.tsx`) |
 
 ---
 
@@ -44,7 +46,8 @@
   | 스토어 | 파일 | 영속화 | 역할 |
   | :--- | :--- | :--- | :--- |
   | `useProfileStore` | `src/store/profile-store.ts` | `persist` → localStorage `mylink_state_v1` | 메인 허브 프로필·기술 스택·쇼릴 |
-  | `useLinksStore` | `src/store/links-store.ts` | **Firestore** `users/anonymous/links` (실시간 구독) | 메인 허브와 `/mypage`가 함께 쓰는 링크 목록·추가·수정·삭제·순서 |
+  | `useAuthStore` | `src/store/auth-store.ts` | Firebase Auth 세션 (자동 유지) + Firestore `users/{uid}` 구독 | 로그인 상태(`loading`·`signedIn`·`signedOut`), Google 로그인·로그아웃, 계정 정보 |
+  | `useLinksStore` | `src/store/links-store.ts` | **Firestore** `users/{uid}/links` (로그인한 사용자, 실시간 구독) | 메인 카드와 `/mypage`가 함께 쓰는 링크 목록·추가·수정·삭제·순서. 로그아웃 시 비움 |
 
 - 저장 형식은 기존과 같은 순수 `ProfileData` JSON이라 이전 데이터가 그대로 읽히며, 일부 값이 깨져 있으면 기본값으로 채워 복구합니다.
 - SSR과 첫 화면을 맞추기 위해 `skipHydration`으로 두고, 브라우저 마운트 후 `persist.rehydrate()`로 불러옵니다.
@@ -59,14 +62,16 @@ flowchart LR
   UI --> Profile
   UI --> Links
   Profile -->|persist| Local["Browser LocalStorage"]
-  Links -->|links-repository| Cloud["Cloud Firestore<br/>users/anonymous/links"]
+  Auth["useAuthStore<br/>(Google 로그인)"] -->|user.uid| Links
+  Auth -->|upsert + 구독| UserDoc["Cloud Firestore<br/>users/{uid}"]
+  Links -->|links-repository| Cloud["Cloud Firestore<br/>users/{uid}/links"]
   Cloud -->|onSnapshot 실시간| Links
 ```
 
 | 단계 | 저장 방식 | 주요 목표 및 특징 |
 | :---: | :--- | :--- |
 | **Phase 1 (현재 MVP)** | **LocalStorage + 기본 시드 데이터** | • 최초 접속 시 코드에 정의된 기본 프로필/링크 데이터 로드<br/>• 편집 모드에서 수정 시 브라우저 `localStorage`에 즉시 반영 및 유지<br/>• 기본값 복원(Reset to Default) 기능 제공 |
-| **Phase 2 (추후 확장)** | **Firebase (Cloud Firestore + Authentication)** | • 간단한 관리자 비밀번호/핀(PIN) 인증을 통한 편집 권한 보호<br/>• 수정 사항이 DB에 저장되어 모든 외부 방문자에게 실시간 동기화 |
+| **Phase 2 (진행 중)** | **Firebase (Cloud Firestore + Authentication)** | • ✅ Google 소셜 로그인, 사용자별 링크 저장(`users/{uid}/links`)<br/>• ⬜ 프로필(이름·소개·쇼릴)도 `users/{uid}`로 이전<br/>• ⬜ 방문자용 공개 페이지(로그인 없이 특정 사용자의 링크 보기) |
 
 ### 2.1 Firebase 설정 (Setup)
 - **프로젝트:** `my-dae-link` (웹 앱). SDK: `firebase` npm 패키지 (모듈식 v9+ API).
@@ -85,19 +90,44 @@ flowchart LR
 - **초기화 모듈 (`src/lib/firebase.ts`):** 앱을 한 번만 만들고(`getApps`) 다음을 내보냅니다.
   - `firebaseApp` — Firebase 앱 인스턴스
   - `db` — Cloud Firestore (Phase 2 프로필·링크 저장소)
-  - `getFirebaseAuth()` — Authentication (Phase 2 관리자 로그인, 브라우저 전용)
+  - `getFirebaseAuth()` — Authentication (Google 로그인, 브라우저 전용)
   - `initFirebaseAnalytics()` — 브라우저이고 지원되는 환경이며 측정 ID가 있을 때만 Analytics를 켭니다.
   - `isFirebaseConfigured` — 필수 값이 비어 있으면 개발 중 콘솔에 경고합니다.
 - **Analytics:** 루트 레이아웃의 `<FirebaseAnalytics />`가 앱 시작 시 한 번 초기화합니다.
-- **보안 메모:** 웹 API 키는 브라우저에 노출되는 공개 식별자이므로, 실제 보호는 **Firestore 보안 규칙**과 Google Cloud 콘솔의 **API 키 제한(허용 도메인)**으로 합니다. M6에서 보안 규칙을 "관리자만 쓰기, 누구나 읽기"로 설정합니다.
-- **Firestore 데이터 구조 (링크):**
+- **보안 메모:** 웹 API 키는 브라우저에 노출되는 공개 식별자이므로, 실제 보호는 **Firestore 보안 규칙**과 Google Cloud 콘솔의 **API 키 제한(허용 도메인)**으로 합니다.
+- **Google 로그인 설정:** Firebase 콘솔 → Authentication → 로그인 방법에서 **Google 제공업체가 사용 설정**되어 있어야 합니다 (2026-11-04 확인: 로그인 창 정상 표시). 배포 도메인은 Authentication → 설정 → **승인된 도메인**에 추가합니다 (`localhost`는 기본 포함).
+
+### 2.2 인증 (Google 소셜 로그인)
+- **흐름:** 헤더의 `Google로 로그인` → `signInWithPopup(GoogleAuthProvider)` (계정 선택 창 `prompt: select_account`) → 성공하면 `onAuthStateChanged`가 사용자 정보를 받음 → `users/{uid}` 문서에 계정 정보를 기록(upsert) → 같은 문서를 실시간 구독해 화면에 표시.
+- **세션 유지:** Firebase Auth 기본 설정(브라우저 로컬 저장)으로 새로고침·재방문해도 로그인이 유지됩니다. 확인하는 동안(`status: loading`)은 스켈레톤을 보여 화면이 깜빡이지 않게 합니다.
+- **팝업 예외 처리:** 팝업이 막히면 리디렉션 방식으로 다시 시도합니다. Google 로그인 창은 COOP 정책 때문에 SDK가 창이 닫힌 것을 바로 알지 못하므로, 사용자가 창을 닫고 돌아온 뒤 4초 안에 로그인이 끝나지 않으면 버튼을 다시 활성화합니다. 사용자가 직접 창을 닫은 경우는 오류로 표시하지 않습니다.
+- **오류 문구:** Google 로그인 꺼짐(`auth/operation-not-allowed`), 승인되지 않은 도메인, 네트워크 오류를 한국어로 안내합니다.
+- **로그인에 따른 화면:**
+
+  | 화면 | 로그인 전 | 로그인 후 |
+  | :--- | :--- | :--- |
+  | 헤더 (메인·/mypage 공통) | `Google로 로그인` 버튼 | **프로필 아이콘 버튼**(원형 사진) → 드롭다운 메뉴 (§5.5.1) |
+  | 메인 카드 링크 영역 | "로그인하면 내 링크가 보여요" 안내 + 로그인 버튼 | 내 링크(`users/{uid}/links`, 카드 순서) |
+  | 메인 `편집 모드` 버튼 | 숨김 | 표시 (로그아웃하면 자동으로 보기 모드) |
+  | `/mypage` | "로그인 후 사용할 수 있어요" 안내 + 사용할 수 있는 기능 목록 + 로그인 버튼 | 계정 정보 패널 + 빠른 추가 폼 + 링크 목록 |
+
+  - 프로필 카드(이름·소개·스킬·쇼릴)는 로그인과 상관없이 보입니다 (아직 브라우저 localStorage 저장).
+
+- **Firestore 데이터 구조:**
 
   ```text
-  users/{userId}                      사용자 문서
-    linksMigratedAt  timestamp        localStorage → Firestore 링크 이전 완료 시각 (1회)
-    migratedLinkCount number          이전한 링크 개수
+  users/{uid}                          사용자 문서 (로그인할 때마다 갱신)
+    uid          string     Firebase Auth uid
+    displayName  string     Google 계정 이름
+    email        string     Google 계정 이메일
+    photoURL     string     Google 프로필 사진
+    provider     string     google.com
+    createdAt    timestamp  처음 로그인한 시각 (최초 1회)
+    lastLoginAt  timestamp  마지막 로그인 시각
+    legacyLinksImportedAt     timestamp?  이전 공용 링크를 가져온 시각
+    legacyLinksImportedCount  number?     가져온 링크 개수
 
-  users/{userId}/links/{linkId}       링크 문서 (메인 허브·/mypage 공용)
+  users/{uid}/links/{linkId}           내 링크 문서 (메인 카드·/mypage 공용)
     title      string     링크 제목 (필수)
     url        string     이동 주소 — http(s):// 또는 mailto: (필수)
     subtitle   string     부제목 (없으면 "")
@@ -109,22 +139,24 @@ flowchart LR
     updatedAt  timestamp  serverTimestamp() — 마지막 수정·순서 변경 시각
   ```
 
-  - 로그인 전 단계라 `userId`는 `anonymous`로 고정합니다 (`ANONYMOUS_USER_ID`). Firebase Auth를 붙이면 로그인 사용자의 `uid`로 바꿉니다.
-  - `/mypage`에서 추가한 링크는 `subtitle: ""`, `iconType: "link"`, `variant: "glass"` 기본값으로 저장되어 메인 카드에도 바로 표시됩니다.
-  - **불러오기:** 페이지가 열리면 `query(users/anonymous/links, orderBy("createdAt", "desc"))`를 `onSnapshot`으로 구독해 **createdAt 최신순**으로 불러오고, 추가·수정·삭제가 생기면 목록이 자동으로 갱신됩니다. 방금 추가한 문서는 서버 시각이 정해지기 전에도 추정 시각으로 맨 위에 옵니다.
-  - **화면별 정렬:** `/mypage` 목록은 최신순 그대로(`links`), 메인 카드와 편집 모드는 직접 정한 `order` 오름차순(`orderedLinks`, `order`가 없는 예전 문서는 맨 뒤)으로 보여줍니다.
-  - 저장소 함수: `subscribeLinks`, `addLinkDoc`, `updateLinkDoc`, `deleteLinkDoc`, `reorderLinkDocs`(배치 커밋), `migrateLocalLinks`. 쓰기는 10초 안에 응답이 없으면 오류를 알리고, 실패 문구는 `describeFirestoreError`가 한국어로 만듭니다.
-- **마이그레이션 (localStorage → Firestore, 최초 1회):** 링크 화면이 처음 열릴 때, 이 브라우저에 저장돼 있던 링크(없으면 기본 시드 링크)를 `users/anonymous/links`로 옮깁니다.
-  - `users/anonymous.linksMigratedAt`을 트랜잭션 안에서 확인하므로 여러 탭·기기에서 동시에 열어도 한 번만 실행됩니다.
-  - 기존 링크 id(`link-youtube-channel` 등)를 문서 ID로 그대로 써서 중복되지 않습니다.
-  - 브라우저에는 `mylink_links_migrated_v1` 표시를 남겨 다음부터는 확인 요청도 생략합니다.
-  - "기본값 복원"은 이제 프로필(이름·소개·스킬·쇼릴)만 되돌리고, Firestore 링크는 건드리지 않습니다.
-- **보안 규칙 (권장안, Firebase 콘솔에서 적용):** 지금 경로는 로그인이 없으므로 누구나 읽고 쓸 수 있습니다. 공개 전에는 최소한 아래처럼 필드와 길이를 제한하고, Auth 도입 후에는 쓰기 조건을 `request.auth.uid == userId`로 바꿉니다.
+  - 모든 링크 함수는 로그인한 사용자의 `user.uid`를 받아 `users/{uid}/links`에만 읽고 씁니다. 로그인 전에는 호출하지 않습니다.
+  - `/mypage`에서 빠르게 추가한 링크는 `subtitle: ""`, `iconType: "link"`, `variant: "glass"` 기본값으로 저장되어 메인 카드에도 바로 표시됩니다.
+  - **불러오기:** 로그인하면 `query(users/{uid}/links, orderBy("createdAt", "desc"))`를 `onSnapshot`으로 구독해 **createdAt 최신순**으로 불러오고, 추가·수정·삭제가 생기면 목록이 자동으로 갱신됩니다. 다른 계정으로 바꾸면 구독도 그 계정 경로로 바뀝니다.
+  - **화면별 정렬:** `/mypage` 목록은 최신순 그대로(`links`), 메인 카드는 직접 정한 `order` 오름차순(`orderedLinks`, `order`가 없는 예전 문서는 맨 뒤).
+  - 저장소 함수: `subscribeLinks`, `addLinkDoc`, `updateLinkDoc`, `deleteLinkDoc`, `reorderLinkDocs`(배치), `countLegacyLinks`, `importLegacyLinks` (`src/lib/links-repository.ts`) / `upsertUserProfile`, `subscribeUserProfile` (`src/lib/users-repository.ts`).
+- **이전 공용 링크 가져오기:** 로그인 기능 전에는 모든 링크가 공용 경로 `users/anonymous/links`에 있었습니다. 로그인한 사용자의 목록이 비어 있고 공용 경로에 링크가 있으면, `/mypage`에 `이전 링크 N개 가져오기` 버튼이 나타납니다.
+  - 누르면 공용 링크를 같은 문서 ID로 `users/{uid}/links`에 **복사**합니다 (원본은 그대로, 여러 번 눌러도 중복 없음). 기록은 `users/{uid}.legacyLinksImportedAt`.
+  - 예전의 localStorage → `users/anonymous` 자동 마이그레이션은 로그인 도입으로 없앴습니다.
+  - "기본값 복원"은 프로필(이름·소개·스킬·쇼릴)만 되돌리고, Firestore 링크는 건드리지 않습니다.
+- **보안 규칙 (권장안, Firebase 콘솔에서 적용):** 본인 문서만 읽고 쓸 수 있게 합니다. 공용 경로는 가져오기용으로 읽기만 허용합니다.
 
   ```text
   rules_version = '2';
   service cloud.firestore {
     match /databases/{database}/documents {
+      function isOwner(uid) {
+        return request.auth != null && request.auth.uid == uid;
+      }
       function validLink(data) {
         return data.keys().hasOnly(['title', 'url', 'subtitle', 'iconType', 'badge', 'variant', 'order', 'createdAt', 'updatedAt'])
           && data.title is string && data.title.size() > 0 && data.title.size() <= 40
@@ -135,19 +167,27 @@ flowchart LR
           && data.order is int
           && data.updatedAt == request.time;
       }
-      match /users/anonymous {
-        allow read: if true;
-        allow create, update: if request.resource.data.keys().hasOnly(['linksMigratedAt', 'migratedLinkCount']);
+      // 사용자 문서: 본인만
+      match /users/{uid} {
+        allow read, write: if isOwner(uid);
+        // 내 링크: 본인만, 필드 검사
+        match /links/{linkId} {
+          allow read, delete: if isOwner(uid);
+          allow create: if isOwner(uid) && validLink(request.resource.data)
+            && request.resource.data.createdAt == request.time;
+          allow update: if isOwner(uid) && validLink(request.resource.data)
+            && request.resource.data.createdAt == resource.data.createdAt;
+        }
       }
+      // 로그인 전 공용 링크: 로그인한 사용자가 가져오기용으로 읽기만
       match /users/anonymous/links/{linkId} {
-        allow read: if true;
-        allow create: if validLink(request.resource.data) && request.resource.data.createdAt == request.time;
-        allow update: if validLink(request.resource.data) && request.resource.data.createdAt == resource.data.createdAt;
-        allow delete: if true; // Auth 도입 후 관리자만
+        allow read: if request.auth != null;
+        allow write: if false;
       }
     }
   }
   ```
+  - 이전 공용 링크를 가져올 때는 새 문서의 `createdAt`·`updatedAt`을 서버 시각으로 쓰므로 위 규칙을 통과합니다.
 - **Next.js 참고:** `NEXT_PUBLIC_` 값은 `next build` 시점에 번들에 고정됩니다. 값을 바꾸면 개발 서버 재시작 또는 재빌드가 필요합니다.
 
 ---
@@ -162,9 +202,11 @@ flowchart LR
 ### 3.2 프로필 정보 관리 (Profile Management)
 | 항목 | 상세 요구사항 |
 | :--- | :--- |
-| **프로필 아바타** | • `120px × 120px` 원형 Glass 프레임 + `60FPS` 포인트 배지<br/>• 이미지 URL 입력 시 프로필 사진 렌더링, 미입력 시 텍스트 이니셜(`이`) 표시 |
+| **프로필 아바타** | • `120px × 120px` 원형 Glass 프레임<br/>• 이미지 URL 입력 시 프로필 사진 렌더링, 미입력 시 **이름의 첫 글자**를 자동 표시 (별도 이니셜 입력·포인트 배지는 2026-11-04에 제거) |
 | **기본 텍스트 정보** | • **이름(H1):** 예) `이대건`<br/>• **직무 타이틀(Label):** 예) `Motion Graphic Designer`<br/>• **소개 문구(Body):** 멀티라인(줄바꿈) 지원 자기소개 텍스트 편집 |
 | **기술 스택 태그 (Skills)** | • 보유 툴 태그(`After Effects`, `Blender`, `3ds Max`, `Photoshop`, `Illustrator`, `Premiere Pro` 등) 추가 및 개별 삭제(`×`) 지원 |
+
+- **카드 푸터:** 로그인한 사용자는 `© 2026 @{displayName}` (표시 이름 = 이메일 앞부분, 예: `© 2026 @cleangabby`), 로그인 전에는 `© 2026 MyLink`.
 
 ### 3.3 대표 쇼릴(Showreel) 인라인 재생 및 미리보기 (Featured Showreel Player)
 - **기능 설명:** 모션그래픽 디자이너의 핵심 포트폴리오인 **대표 쇼릴 영상**을 외부 사이트로 이탈하지 않고 마이링크 카드 안에서 바로 재생하거나 미리 볼 수 있는 전용 미디어 블록입니다.
@@ -200,8 +242,6 @@ flowchart LR
 | 프로필 | 이름 | 필수, 20자 이내 |
 | | 직무 타이틀 | 필수, 40자 이내 |
 | | 소개글 | 200자 이내 |
-| | 아바타 이니셜 | 필수, 2자 이내 |
-| | 포인트 배지 | 10자 이내 |
 | | 프로필 이미지 URL | 비워도 됨, 입력 시 `http(s)://` |
 | 기술 스택 | 새 스킬 | 필수, 20자 이내, 대소문자 무시 중복 금지 |
 | 대표 쇼릴 | 제목 | 필수, 40자 이내 |
@@ -214,12 +254,13 @@ flowchart LR
 | | 주소 | 필수(빈 칸 금지), `http(s)://` 또는 `mailto:이메일` |
 
 ### 3.6 내 링크 관리 페이지 (`/mypage`) — 링크 관리 전용
-- **목적:** 링크 추가·조회·수정·삭제·순서 변경을 한 곳에서 하는 링크 관리 전용 페이지입니다. 메인 화면 상단의 `내 링크 관리` 버튼, 또는 편집 모드 링크 영역의 `내 링크 관리로 이동` 버튼으로 이동합니다. (7주차 실습 화면에서 출발해 확장)
+- **로그인 필요:** 로그인 전에는 폼·목록 대신 "로그인 후 사용할 수 있어요" 안내, 사용할 수 있는 기능 목록, `Google 계정으로 로그인` 버튼을 보여줍니다 (§2.2). 로그인하면 맨 위에 **계정 정보 패널**(`users/{uid}`: 사진·이름·uid 경로·이메일·가입일·마지막 로그인·내 링크 개수)이 나타납니다.
+- **목적:** 로그인한 사용자가 자기 링크(`users/{uid}/links`)의 추가·조회·수정·삭제·순서 변경을 한 곳에서 하는 링크 관리 전용 페이지입니다. 메인 화면 상단의 `내 링크 관리` 버튼, 또는 편집 모드 링크 영역의 `내 링크 관리로 이동` 버튼으로 이동합니다. (7주차 실습 화면에서 출발해 확장)
 - **페이지 구조:** 상단 `내 링크 관리` 제목 / 중간 빠른 추가 폼 / 하단 링크 목록.
 - **빠른 추가 폼:** 제목 입력 칸, 주소 입력 칸(세로 배치), `추가` 버튼 + `상세 추가` 버튼. 버튼은 프로젝트 팔레트 규칙에 따라 Hearth primary 버튼을 사용합니다 (실습 예시의 보라색 `#5B5FC7` 대신).
 - **빠른 추가 동작:**
   1. `추가` 클릭 → 빈 칸·주소 형식 검사 (§3.5)
-  2. 통과 시 Firestore `users/anonymous/links`에 저장 — 저장 중에는 버튼이 `저장 중...`으로 바뀌고 비활성화
+  2. 통과 시 Firestore `users/{uid}/links`에 저장 — 저장 중에는 버튼이 `저장 중...`으로 바뀌고 비활성화
   3. 목록은 Firestore 실시간 구독이라 저장 즉시 반영됨 (실패하면 입력값을 유지하고 폼 아래에 오류 문구 표시)
   4. 입력 칸 자동 비우기 + 제목 칸으로 포커스 이동
 - **상세 추가·수정 모달:** 제목·부제목·주소·아이콘(8종)·배지(프리셋 NEW/FEATURED/HOT/OPEN)·스타일(Glass/Primary)을 입력하며, Zod 스키마로 검사합니다 (§3.5 링크 모달 규칙).
@@ -269,9 +310,7 @@ export interface ProfileData {
   name: string;
   role: string;
   bio: string;
-  avatarText: string;
   avatarImageUrl?: string;
-  fpsBadge: string;
   skills: string[];
   showreel: ShowreelConfig;
   links: LinkItem[];
@@ -317,7 +356,7 @@ export interface ProfileData {
 3. **`Input` & `Textarea` & `Label` (`src/components/ui/input.tsx` 등):**
    - 편집 모드에서 사용하는 모든 입력 필드는 플로팅 라벨 없이 상단 고정 `Label` + 반투명 유리 입력창(`bg-winter/10 backdrop-blur-md border-winter/22 text-foreground placeholder:text-winter/45`)으로 구성하며, 포커스 시 `2px` Hearth 포커스 링(`ring-offset-2`)을 적용.
 4. **`Badge` (`src/components/ui/badge.tsx`):**
-   - 기술 스택 태그(`After Effects`, `Blender` 등)와 포인트 배지(`60FPS`, `FEATURED`, `NEW`)를 표현하는 프로스티드 글래스 칩(`backdrop-blur-sm bg-white/14 border-white/25`).
+   - 기술 스택 태그(`After Effects`, `Blender` 등)와 강조 배지(`FEATURED`, `NEW`)를 표현하는 프로스티드 글래스 칩(`backdrop-blur-sm bg-white/14 border-white/25`).
 5. **`Dialog` / `Select` / `Switch` (편집 모드 오버레이 및 컨트롤):**
    - 링크 추가·수정 모달 및 컨트롤은 `z-index` 계층(`overlay: 200`, `modal: 300`, `toast: 500`)을 준수하며, 배경 블러 오버레이 위에 다중 레이어 유리 패널로 렌더링.
 
@@ -334,6 +373,41 @@ export interface ProfileData {
     - `ease-swoosh` `cubic-bezier(0.85, 0, 0.15, 1)` — 천천히 → 슉 → 천천히 (85 % / 85 %): 쇼릴 펼침·접힘, 모달 열림, 페이지 전환
     - `ease-snap` `cubic-bezier(0.90, 0, 0.90, 1)` — 길게 모았다가 탁 (90 % / 10 %): 배지·저장 완료 같은 강조
 
+
+### 5.5 사이트 헤더 (`src/components/site-header.tsx`)
+- **배치:** 모든 페이지 맨 위에 가로 전체로 붙는 sticky 헤더 (높이 56px, `z-index: 100`). 안쪽 콘텐츠는 최대 폭 1024px로 가운데 정렬.
+- **구성:**
+  - **왼쪽 — 로고:** MyLink 로고 마크(Hearth 바탕에 맞물린 두 고리, Crow 선) + `MyLink` 워드마크 + `MOTION LINK HUB` 보조 문구(모바일에서는 숨김). 누르면 홈(`/`)으로 이동, 호버 시 마크가 살짝 기울어짐(`ease-punch`).
+  - **가운데 — 내비게이션:** `홈` · `내 링크 관리`. 현재 페이지는 글자가 밝아지고 아래에 2px Hearth 밑줄(Design.md: Active item accent indicator), `aria-current="page"`. 모바일에서는 아이콘만 표시.
+  - **오른쪽 — 페이지별 버튼 + 계정:** 메인은 `편집 모드`(로그인 시) / 편집 중에는 `기본값 복원`·`완료`. 버튼과 계정 영역 사이에 세로 구분선. 맨 끝은 로그인 전 `Google로 로그인` 버튼, 로그인 후 **프로필 아이콘 버튼**(§5.5.1).
+- **헤더 구분 UI:** 반투명 유리 배경(`bg-crow/45` + `backdrop-blur-xl`)과 아래쪽 1px 구분선(가운데가 밝고 양 끝으로 사라지는 그라디언트). 스크롤하면 배경이 `bg-crow/80`으로 진해지고 그림자가 생김(`ease-swoosh` 300ms).
+- **알림 위치:** 저장·오류 알림은 헤더 안이 아니라 헤더 아래 우측(`top: 68px`, `z-index: 500` toast)에 뜸.
+
+#### 5.5.1 프로필 드롭다운 메뉴 (`src/components/profile-menu.tsx`)
+- **트리거:** 36px 원형 프로필 사진 버튼 (사진이 없으면 표시 이름 첫 글자). 기본은 옅은 링, 호버 시 Hearth 링, 열려 있으면 2px Hearth 링, 누를 때 살짝 작아짐. `aria-label="계정 메뉴 열기 (@displayName)"`.
+- **구성 (위에서 아래로):**
+  1. **계정 요약** — 40px 사진, `@displayName`(이메일 앞부분), 이메일, `링크 N개 · 가입 YYYY년 M월 D일` (`users/{uid}`)
+  1-1. **링크 주소 복사** — 내 마이링크 주소(`{origin}/`, 예: `http://localhost:3000/`)를 클립보드에 복사. 성공하면 Sonner로 "링크 주소를 복사했어요" + 복사한 주소, 실패하면 "링크 주소를 복사하지 못했어요" 알림. Clipboard API가 막힌 환경은 textarea 복사로 대신함. 오른쪽에 복사될 도메인을 작게 표시.
+  2. **바로가기** — `홈`, `내 링크 관리`(링크 개수 배지), `계정 정보`(`/mypage#account` 계정 패널로 이동)
+  3. **Google 계정 관리** — 사진·이름은 Google에서 바꾸므로 `myaccount.google.com`을 새 탭으로 연결 (외부 링크 아이콘)
+  4. **로그아웃** — 맨 아래, 구분선으로 떼어 실수 방지, Danger 색
+- **디자인:** 짙은 유리 패널(`bg-popover` + `backdrop-blur-xl`, 위쪽 은은한 inset 빛), 폭 264px, 모서리 14px. 항목은 높이 36px, 왼쪽 아이콘 박스가 강조 시 Hearth로 바뀜. 구분선은 양 끝이 사라지는 1px 그라디언트.
+- **모션:** 버튼 쪽(오른쪽 위)을 기준으로 살짝 커지며 나타나고 작아지며 사라짐 (`ease-swoosh` 200ms).
+- **접근성:** Base UI Menu — ↑↓ 키로 이동, Enter로 실행, Esc·바깥 클릭으로 닫힘, 닫히면 포커스가 버튼으로 돌아감. z-index 150 (헤더 100 위).
+
+### 5.6 로딩 오버레이 (`src/components/loading-overlay.tsx`)
+- **언제:** 갱신·업데이트 같은 진행 작업이 있을 때 — 로그인 상태 확인, Google 로그인·로그아웃, 링크 불러오기, 링크 저장·수정·삭제·순서 변경, 이전 링크 가져오기.
+- **모양 (글래스모피즘):** 페이지 전체를 덮는 오버레이. 배경은 흐려지고(`backdrop-blur-md`, `bg-crow/45`) 아래 화면은 누를 수 없음. 가운데 유리 패널에 로딩 아이콘(로고 마크 + 주위를 도는 Hearth 호)과 진행 문구("링크 저장 중..." 등, 점 세 개 애니메이션).
+- **모션:** 호는 한 바퀴마다 천천히 → 슉 → 천천히(`ease-swoosh`), 로고는 길게 모았다가 탁(`ease-snap`)으로 숨쉬기, 오버레이는 220ms 페이드 인. 동작 줄이기 설정에서는 회전 없이 천천히 깜빡이기만.
+- **깜빡임 방지:** 250ms 안에 끝나는 작업은 띄우지 않고, 한 번 뜨면 최소 400ms는 보여줌.
+- **구조:** `src/store/loading-store.ts`의 작업 목록(`beginLoading(label)` → 끝낼 때 호출). 작업이 겹치면 하나라도 진행 중일 때 계속 보이고, 가장 최근 작업의 문구를 표시. z-index 400(모달 300 위, 토스트 500 아래).
+
+### 5.7 알림 (Sonner, `src/components/app-toaster.tsx`)
+- **용도:** 사용자가 한 동작의 결과를 짧게 알려줄 때 (예: 링크 주소 복사). 진행 중 상태는 로딩 오버레이(§5.6), 저장 결과는 기존 헤더 아래 알림을 사용.
+- **위치:** 화면 우측 상단, 헤더 아래(`top: 72px`, 모바일은 좌우 12px 여백으로 가로 꽉 차게). 2.6초 뒤 자동으로 사라짐.
+- **모양:** 기본 스타일을 끄고(`unstyled`) 짙은 유리 패널로 통일 — `bg-popover` + `backdrop-blur-xl`, 모서리 14px, 위쪽 은은한 inset 빛. 제목 13px 굵게, 설명은 모노 11px.
+- **아이콘:** 성공 Hearth 체크, 오류 Danger 느낌표, 안내 Bay Wharf, 진행 Hearth 회전.
+- **모션:** Sonner 기본 전환 곡선을 `ease-punch`(확 치고 길게 감속)로 교체.
 ---
 
 ## 6. 사용자 시나리오 (User Scenarios)
@@ -352,12 +426,13 @@ flowchart TD
   Action -->|프로젝트 문의 클릭| Mail["기본 메일 앱 실행<br/>(mailto:cleangabby@gmail.com)"]
 
   %% 관리자 흐름
-  Role -->|관리자: 디자이너 본인| ToggleEdit["우측 상단/하단 '편집 모드' 버튼 클릭"]
+  Role -->|관리자: 디자이너 본인| SignIn["헤더 'Google로 로그인'<br/>(users/{uid} 기록)"]
+  SignIn --> ToggleEdit["우측 상단 '편집 모드' 버튼 클릭"]
   ToggleEdit --> EditAction{"편집 작업 수행"}
   EditAction -->|프로필/스킬 수정| UpdateProfile["이름·소개글·아바타·툴 태그 실시간 변경"]
   EditAction -->|쇼릴 변경| UpdateShowreel["신규 YouTube URL 입력 및 썸네일 미리보기 확인"]
   UpdateProfile & UpdateShowreel --> Save["LocalStorage 자동 저장 및<br/>'편집 완료' 클릭 시 View 모드 복귀"]
-  Role -->|관리자: 링크 관리| MyPage["'내 링크 관리' 버튼 → /mypage"]
+  SignIn -->|링크 관리| MyPage["'내 링크 관리' 버튼 → /mypage<br/>(users/{uid}/links)"]
   EditAction -->|링크 관리로 이동| MyPage
   MyPage --> LinkAction{"링크 작업"}
   LinkAction -->|빠른 추가 / 상세 추가| AddLink["제목·주소(+부제목·아이콘·배지·스타일) 입력"]
@@ -391,7 +466,8 @@ flowchart TD
 - **페르소나:** 모션그래픽 디자이너 **이대건** (서비스 소유자)
 - **상황 및 목표:** 새로운 개인작 영상을 유튜브에 업로드한 직후, 코드를 다시 짜거나 배포할 필요 없이 웹 화면에서 바로 대표 쇼릴 영상을 교체하고 신규 링크를 추가하고 싶음.
 - **상세 흐름 (Step-by-Step):**
-  1. **편집 모드 진입:** 마이링크 페이지 우측 상단(또는 하단)의 플로팅 **`편집 모드`** 버튼을 클릭한다.
+  0. **로그인:** 헤더의 **`Google로 로그인`**을 눌러 본인 Google 계정으로 로그인한다. 헤더에 사진·이름이 보이고 `편집 모드` 버튼이 나타난다.
+  1. **편집 모드 진입:** 마이링크 페이지 우측 상단의 플로팅 **`편집 모드`** 버튼을 클릭한다.
   2. **프로필 및 스킬 태그 업데이트:** 새로 익힌 툴이나 변경된 자기소개 문구를 인라인 입력창에서 수정하고, 기술 스택 영역에서 새 태그를 입력해 추가하거나 기존 태그의 `×` 버튼을 눌러 정리한다.
   3. **대표 쇼릴 URL 교체:** 쇼릴 설정 입력란에 새로 업로드한 유튜브 영상 주소를 붙여넣는다. 즉시 새로운 영상의 썸네일 미리보기가 카드에 반영되는 것을 확인한다.
   4. **프로필 저장 확인:** 프로필·쇼릴 수정 사항은 즉시 브라우저 `localStorage`에 자동 저장된다. **`완료`** 버튼을 눌러 방문자 시점(View Mode)으로 돌아가 결과를 확인한다. (필요 시 `기본값 복원`으로 프로필만 초기 상태로 되돌린다.)
@@ -418,7 +494,7 @@ flowchart TD
 |           |                  .---------.                  |           |
 |           |                 /           \                 |           |
 |           |                |     이      | (120 x 120px)  |           |
-|           |                 \           /  [60FPS]        |           |
+|           |                 \           /                 |           |
 |           |                  '---------'                  |           |
 |           |                                               |           |
 |           |                    이대건                      | <-- H1    |
@@ -452,7 +528,7 @@ flowchart TD
 |           |  |     cleangabby@gmail.com                |  |  (Glass)  |
 |           |  +-----------------------------------------+  |           |
 |           |                                               |           |
-|           |               © 2026 Lee Dae-geon             | <-- Footer|
+|           |          © 2026 @cleangabby (로그인 시)        | <-- Footer|
 |           +-----------------------------------------------+           |
 |                                                                       |
 +-----------------------------------------------------------------------+
@@ -536,6 +612,90 @@ flowchart TD
 +-----------------------------------------------+
 ```
 
+
+### 7.5 로그인 상태별 화면 (Google 소셜 로그인)
+
+**사이트 헤더 (메인·/mypage 공통, 화면 맨 위 sticky — §5.5)**
+
+```text
+로그인 전
++---------------------------------------------------------------------------+
+| [∞] MyLink          ⌂ 홈   ≡+ 내 링크 관리               [ G Google로 로그인 ] |
+|     MOTION LINK HUB  ‾‾‾‾ (현재 페이지 Hearth 밑줄)                          |
++---------------------------------------------------------------------------+
+  ───────────── 1px 구분선 (가운데 밝고 양 끝으로 사라짐) ─────────────
+
+로그인 후 (메인)
+| [∞] MyLink   ⌂ 홈   ≡+ 내 링크 관리               [✎ 편집 모드] │ (C) |  <-- 프로필 아이콘 버튼
+                                                     +------------------------------+
+                                                     | (C)  @cleangabby             |
+                                                     |      cleangabby@gmail.com    |
+                                                     | 링크 7개 · 가입 2026년 11월 4일 |
+                                                     | [⧉] 링크 주소 복사  localhost |
+                                                     | ---------------------------- |
+                                                     | 바로가기                      |
+                                                     | [⌂] 홈                        |
+                                                     | [≡+] 내 링크 관리         [7] |
+                                                     | [👤] 계정 정보                |
+                                                     | ---------------------------- |
+                                                     | [⚙] Google 계정 관리       ↗ |
+                                                     | ---------------------------- |
+                                                     | [⎋] 로그아웃 (Danger)         |
+                                                     +------------------------------+
+
+모바일 (375px): 보조 문구·메뉴 글자 숨김
+| [∞] MyLink   ⌂   ≡+                         [ G Google로 로그인 ] |
+```
+
+**메인 카드 링크 영역 — 로그인 전**
+
+```text
+|  +-----------------------------------------+  |
+|  | [▶] 2026 Motion Showreel   [FEATURED] ▾ |  |  <-- 프로필·쇼릴은 그대로 보임
+|  +-----------------------------------------+  |
+|  + - - - - - - - - - - - - - - - - - - - - +  |
+|  :                 ( 🔒 )                  :  |
+|  :       로그인하면 내 링크가 보여요         :  |
+|  :  링크는 Google 계정별로 따로 저장돼요.   :  |
+|  :     [ G  Google 계정으로 로그인 ]        :  |
+|  + - - - - - - - - - - - - - - - - - - - - +  |
+```
+
+**/mypage — 로그인 전**
+
+```text
++-----------------------------------------------+
+|  [← 마이링크로 돌아가기]                       |
+|  내 링크 관리                                  |
+|  Google 계정으로 로그인하면 나만의 링크 목록을 |
+|  관리할 수 있어요.                             |
+|  + - - - - - - - - - - - - - - - - - - - - +  |
+|  :                 ( 🔒 )                  :  |
+|  :        로그인 후 사용할 수 있어요         :  |
+|  :  ✓ 제목·주소만으로 빠르게 링크 추가      :  |
+|  :  ✓ 부제목·아이콘·배지·스타일 상세 추가   :  |
+|  :  ✓ 메인 카드에 보이는 순서 바꾸기        :  |
+|  :  ✓ 새로고침·다른 기기에서도 유지         :  |
+|  :     [ G  Google 계정으로 로그인 ]        :  |
+|  + - - - - - - - - - - - - - - - - - - - - +  |
++-----------------------------------------------+
+```
+
+**/mypage — 로그인 후 (상단 계정 정보 패널)**
+
+```text
+|  +-----------------------------------------+  |
+|  | (사진) cleangabby                        |  |
+|  |        users/AbC123...                   |  |  <-- Firestore users/{uid}
+|  | 이메일        ...@gmail.com              |  |
+|  | 가입일        2026년 11월 4일 오후 2:10  |  |
+|  | 마지막 로그인  2026년 11월 4일 오후 2:10  |  |
+|  | 내 링크        7개                       |  |
+|  +-----------------------------------------+  |
+|  (이하 빠른 추가 폼 · 링크 목록 — §7.4)        |
+|  목록이 비어 있고 공용 링크가 있으면:           |
+|  [ ⤓ 이전 링크 7개 가져오기 ]                   |
+```
 ---
 
 ## 8. 마일스톤 (Milestones)
@@ -547,7 +707,7 @@ flowchart TD
 | **M3. 디자인 시스템 정비** | 완료 | ColorPallete 6색 토큰, 커서 반응형 번짐 림라이트, AE식 비대칭 이징 토큰 | Design.md 규격과 화면 일치 |
 | **M4. 링크 추가 기능 (Create) — 7주차** | 완료 (2026-11-04) | `/mypage` 페이지, 링크 추가 폼(제목·주소·버튼), 추가 시 목록 반영, 입력 칸 자동 비우기, 빈 칸 검증 / Zustand 상태관리, Zod + React Hook Form 유효성 검사 도입 | 체크리스트 6개 항목 통과 (§8.1) |
 | **M5. Firestore 링크 CRUD** | 완료 (2026-11-04) | Create·Read(실시간 구독, createdAt 최신순)·Update·Delete·순서 변경을 Firestore `users/anonymous/links`로 이전, localStorage 링크 1회 마이그레이션, **링크 관리를 `/mypage`로 일원화**(편집 모드는 프로필·쇼릴 전용) | 새로고침·다른 기기에서도 목록 유지, `/mypage` 변경이 메인 카드에 즉시 반영 |
-| **M6. Phase 2 — 클라우드 동기화** | 진행 중 | ✅ Firebase SDK 설치·초기화, 환경 변수, Analytics 연결 (2026-11-04) / ⬜ Firebase Auth 관리자 로그인(`anonymous` → `uid`), 보안 규칙 적용, 프로필 Firestore 저장, 배포 | 다른 기기의 방문자에게 수정 내용 반영 |
+| **M6. Phase 2 — 로그인·개인화** | 진행 중 | ✅ Firebase SDK·환경 변수·Analytics (2026-11-04) / ✅ Google 소셜 로그인(헤더), 로그인 상태별 화면, 링크 경로 `users/{uid}/links` 개인화, `users/{uid}` 사용자 정보 표시, 이전 공용 링크 가져오기 (2026-11-04) / ⬜ 보안 규칙 적용(§2.2), 프로필 Firestore 이전, 방문자용 공개 페이지, 배포 | 계정마다 링크가 분리되고, 다른 기기에서 로그인해도 같은 링크가 보임 |
 
 ### 8.1 M4 체크리스트 (7주차 실습)
 - [x] `/mypage` 페이지 만들기 — `src/app/mypage/page.tsx`

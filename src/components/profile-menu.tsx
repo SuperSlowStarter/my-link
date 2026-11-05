@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Menu } from "@base-ui/react/menu";
 import { toast } from "sonner";
-import { Copy, ExternalLink, House, ListPlus, LogOut, Settings2, UserRound } from "lucide-react";
+import { BarChart3, Copy, ExternalLink, House, ListPlus, LogOut, Settings2 } from "lucide-react";
 import { useAuthStore } from "@/store/auth-store";
 import { useMyLinks } from "@/hooks/use-links";
 import { useMyProfile } from "@/hooks/use-profile";
@@ -193,14 +193,14 @@ export function ProfileMenu() {
               >
                 내 링크 관리
               </NavItem>
+              <NavItem href="/stats" icon={BarChart3}>
+                통계
+              </NavItem>
               {username && (
                 <NavItem href={`/${username}`} icon={ExternalLink}>
                   내 공개 페이지
                 </NavItem>
               )}
-              <NavItem href="/mypage#profile" icon={UserRound}>
-                프로필 수정
-              </NavItem>
             </Menu.Group>
 
             <Menu.Separator className={SEPARATOR} />

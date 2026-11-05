@@ -3,6 +3,8 @@
 // - 읽기: 공개 프로필·링크·username은 누구나 → 허용(200 또는 404)
 // - 쓰기: 로그인하지 않으면 모두 거부(403)
 // - 계정 정보(users/{uid} 문서)는 본인만 → 거부(403)
+// - 클릭 통계(13주차): clickCount만 정확히 +1 하는 수정은 누구나 허용, 그 밖의 링크 수정(제목·임의 클릭 수)은 거부
+//   (+1 허용 테스트는 실제 사용자 통계를 건드리지 않도록 이전 공용 링크 users/anonymous/links 문서로 한다)
 // 로그인한 본인 쓰기 허용 / 남의 데이터 쓰기 거부는 앱에서 직접 확인한다 (README 참고).
 import { readFileSync } from "node:fs";
 
@@ -46,7 +48,56 @@ const cases = [
   cases.push(["__query__", response.status]);
 }
 
+// 클릭 수 테스트용 링크 하나 (이전 공용 링크)
+const clickCases = [];
+{
+  const list = await (await fetch(`${BASE}/users/anonymous/links?pageSize=1&key=${KEY}`)).json();
+  const doc = list.documents?.[0];
+  if (!doc) {
+    console.log("SKIP  클릭 수 테스트 — users/anonymous/links 에 문서가 없음");
+  } else {
+    const path = doc.name.split("/documents/")[1];
+    const before = Number(doc.fields?.clickCount?.integerValue ?? 0);
+    // 1) increment(1) — 앱이 보내는 것과 같은 서버 +1 (fieldTransforms)
+    const inc = await fetch(`${BASE}:commit?key=${KEY}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        writes: [
+          {
+            transform: { document: doc.name, fieldTransforms: [{ fieldPath: "clickCount", increment: { integerValue: "1" } }] },
+            currentDocument: { exists: true },
+          },
+        ],
+      }),
+    });
+    const after = Number(
+      (await (await fetch(`${BASE}/${path}?key=${KEY}`)).json()).fields?.clickCount?.integerValue ?? 0
+    );
+    clickCases.push([`클릭 수 +1 (로그인 안 함, increment) ${before} → ${after}`, inc.status, inc.ok && after === before + 1 ? "allow" : "deny", "allow"]);
+    // 2) 클릭 수를 마음대로 정하기
+    const set = await fetch(`${BASE}/${path}?updateMask.fieldPaths=clickCount&key=${KEY}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fields: { clickCount: { integerValue: "9999" } } }),
+    });
+    clickCases.push(["클릭 수를 9999로 덮어쓰기 (로그인 안 함)", set.status, set.status === 403 ? "deny" : "allow", "deny"]);
+    // 3) 클릭 수와 함께 제목 바꾸기
+    const title = await fetch(`${BASE}/${path}?updateMask.fieldPaths=title&updateMask.fieldPaths=clickCount&key=${KEY}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fields: { title: field("hacked"), clickCount: { integerValue: String(after + 1) } } }),
+    });
+    clickCases.push(["클릭 수 +1 하면서 제목 바꾸기 (로그인 안 함)", title.status, title.status === 403 ? "deny" : "allow", "deny"]);
+  }
+}
+
 let failed = 0;
+for (const [label, status, actual, expected] of clickCases) {
+  const pass = actual === expected;
+  if (!pass) failed += 1;
+  console.log(`${pass ? "PASS" : "FAIL"}  [${expected === "allow" ? "허용" : "거부"} 기대 → ${status}]  ${label}`);
+}
 for (const [label, method, path, fields, expected] of cases) {
   if (label === "__query__") {
     const pass = method === 200;

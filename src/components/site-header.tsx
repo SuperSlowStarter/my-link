@@ -1,23 +1,19 @@
 "use client";
 
-import { Suspense, useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { House, ListPlus } from "lucide-react";
-import { useAuthStore } from "@/store/auth-store";
+import { ExternalLink } from "lucide-react";
+import { useMyProfile } from "@/hooks/use-profile";
+import { buttonVariants } from "@/components/ui/button";
 import { AuthMenu } from "@/components/auth-menu";
 
 /**
  * 사이트 헤더 (모든 페이지 공통)
- * - 왼쪽: 로고(홈으로) / 가운데: 내비게이션 / 오른쪽: 페이지별 버튼(actions) + Google 로그인
+ * - 왼쪽: 로고(홈으로) / 오른쪽: 페이지별 동작 버튼(actions) + `내 페이지`(로그인 시) + 계정(로그인 버튼 또는 프로필 드롭다운)
+ * - 페이지 이동은 프로필 드롭다운에 두고, 헤더에는 내 공개 페이지(/{username}) 바로가기 버튼 하나만 둔다.
  * - 화면 맨 위에 붙어 따라오며(sticky), 스크롤하면 배경이 진해지고 아래 구분선에 그림자가 생긴다.
  * - z-index 계약: sticky-nav 100 (Design.md)
  */
-
-const NAV_ITEMS = [
-  { href: "/", label: "홈", icon: House },
-  { href: "/mypage", label: "내 링크 관리", icon: ListPlus },
-] as const;
 
 /** MyLink 로고 마크: 두 고리가 맞물린 모양 (Hearth 바탕 + Crow 선) */
 export function LogoMark({ className = "h-7 w-7" }: { className?: string }) {
@@ -43,9 +39,14 @@ export function LogoMark({ className = "h-7 w-7" }: { className?: string }) {
   );
 }
 
-export function SiteHeader({ actions }: { actions?: ReactNode }) {
-  // 메뉴(홈·내 링크 관리)는 로그인한 사용자에게만 보인다
-  const isSignedIn = useAuthStore((state) => state.status === "signedIn");
+export function SiteHeader({
+  actions,
+  hideMyPage = false,
+}: {
+  actions?: ReactNode;
+  /** 이미 내 공개 페이지에 있을 때 `내 페이지` 버튼 숨김 */
+  hideMyPage?: boolean;
+}) {
   const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
@@ -64,7 +65,7 @@ export function SiteHeader({ actions }: { actions?: ReactNode }) {
       }`}
     >
       <div className="mx-auto flex h-14 w-full max-w-5xl items-center gap-3 px-4 sm:gap-6 sm:px-6">
-        {/* 왼쪽: 로고 */}
+        {/* 왼쪽: 로고 (홈으로) */}
         <Link
           href="/"
           aria-label="MyLink 홈"
@@ -79,18 +80,11 @@ export function SiteHeader({ actions }: { actions?: ReactNode }) {
           </span>
         </Link>
 
-        {/* 가운데: 내비게이션 (현재 페이지에 Hearth 밑줄) */}
-        {/* usePathname은 동적 경로(/[username])에서 런타임 데이터라 Suspense 안에서 읽는다 (cacheComponents) */}
-        {isSignedIn && (
-          <Suspense fallback={<HeaderNav pathname={null} />}>
-            <HeaderNavWithPath />
-          </Suspense>
-        )}
-
-        {/* 오른쪽: 페이지별 버튼 + 로그인 */}
+        {/* 오른쪽: 페이지별 동작 버튼 + 계정 */}
         <div className="ml-auto flex items-center gap-2">
           {actions}
           {actions && <span aria-hidden="true" className="hidden h-5 w-px bg-winter/15 sm:block" />}
+          {!hideMyPage && <MyPageButton />}
           <AuthMenu />
         </div>
       </div>
@@ -104,39 +98,22 @@ export function SiteHeader({ actions }: { actions?: ReactNode }) {
   );
 }
 
-/** 현재 경로를 읽어 메뉴에 넘긴다 (Suspense 안에서만 렌더) */
-function HeaderNavWithPath() {
-  const pathname = usePathname();
-  return <HeaderNav pathname={pathname} />;
-}
-
-/** 주 메뉴 — 현재 페이지에 Hearth 밑줄 */
-function HeaderNav({ pathname }: { pathname: string | null }) {
+/** 내 공개 페이지(/{username}) 바로가기 — 로그인하고 프로필이 준비됐을 때만 보인다 */
+function MyPageButton() {
+  const { profile } = useMyProfile();
+  if (!profile?.username) return null;
   return (
-    <nav aria-label="주 메뉴" className="flex h-full items-stretch gap-1">
-      {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
-        const active = pathname === href;
-        return (
-          <Link
-            key={href}
-            href={href}
-            aria-current={active ? "page" : undefined}
-            aria-label={label}
-            className={`relative flex items-center gap-1.5 px-2.5 text-[13px] transition-colors duration-200 ease-punch outline-none focus-visible:text-winter ${
-              active ? "font-medium text-winter" : "text-winter/60 hover:text-winter"
-            }`}
-          >
-            <Icon className="h-4 w-4 sm:h-3.5 sm:w-3.5" aria-hidden="true" />
-            <span className="hidden sm:inline">{label}</span>
-            <span
-              aria-hidden="true"
-              className={`absolute inset-x-2 bottom-0 h-[2px] rounded-full bg-hearth transition-opacity duration-200 ease-punch ${
-                active ? "opacity-100" : "opacity-0"
-              }`}
-            />
-          </Link>
-        );
-      })}
-    </nav>
+    <>
+      <Link
+        href={`/${profile.username}`}
+        aria-label={`내 페이지 (/${profile.username})`}
+        className={buttonVariants({ variant: "glass", size: "sm" })}
+      >
+        <ExternalLink className="h-3.5 w-3.5" />
+        <span className="hidden sm:inline">내 페이지</span>
+      </Link>
+      {/* 버튼과 계정(프로필 사진) 사이 구분선 */}
+      <span aria-hidden="true" className="hidden h-5 w-px bg-winter/15 sm:block" />
+    </>
   );
 }

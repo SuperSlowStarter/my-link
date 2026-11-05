@@ -10,6 +10,7 @@ export const USERNAME_PATTERN = /^[a-z0-9](?:[a-z0-9_-]{1,18})[a-z0-9]$/;
 /** 사이트 경로·시스템 이름과 겹쳐서 쓸 수 없는 username */
 export const RESERVED_USERNAMES = new Set([
   "mypage",
+  "stats",
   "api",
   "admin",
   "login",

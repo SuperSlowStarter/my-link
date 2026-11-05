@@ -10,6 +10,7 @@ import {
   describeFirestoreError,
   fetchLinks,
   importLegacyLinks,
+  incrementLinkClick,
   reorderLinkDocs,
   sortByOrder,
   updateLinkDoc,
@@ -165,4 +166,33 @@ export function useLegacyLinkCount(enabled: boolean) {
     staleTime: 5 * 60_000,
   });
   return query.data ?? 0;
+}
+
+/**
+ * 링크 클릭 수 +1 (13주차: 클릭 통계)
+ * - 링크 버튼을 누르면 호출한다. 이동(새 탭 열기)은 막지 않고, 저장은 뒤에서 보낸다.
+ * - 화면 캐시(["links", ownerUid])를 먼저 +1 해서 내 카드·통계에 바로 보이게 한다 (낙관적 업데이트).
+ * - 실패하면 콘솔에 오류를 남기고 캐시를 다시 조회해 원래 값으로 돌린다. 방문자에게 알림은 띄우지 않는다.
+ * - 클릭은 로딩 오버레이를 띄우지 않는다 (meta.loadingLabel 없음).
+ */
+export function useLinkClick(ownerUid: string | null) {
+  const queryClient = useQueryClient();
+  const mutation = useMutation({
+    mutationFn: (linkId: string) => {
+      if (!ownerUid) throw new Error("invalid-link");
+      return incrementLinkClick(ownerUid, linkId);
+    },
+    onMutate: (linkId) => {
+      if (!ownerUid) return;
+      queryClient.setQueryData<StoredLink[]>(queryKeys.links(ownerUid), (current) =>
+        current?.map((link) => (link.id === linkId ? { ...link, clickCount: link.clickCount + 1 } : link))
+      );
+    },
+    onError: (error, linkId) => {
+      console.error("[firestore] 클릭 수 저장 실패", { ownerUid, linkId, error });
+      if (ownerUid) void queryClient.invalidateQueries({ queryKey: queryKeys.links(ownerUid) });
+    },
+  });
+  const { mutate } = mutation;
+  return (linkId: string) => mutate(linkId);
 }

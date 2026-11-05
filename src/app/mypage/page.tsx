@@ -23,8 +23,7 @@ import { quickLinkSchema, type QuickLinkValues } from "@/lib/schemas";
 import { useRimLight } from "@/lib/use-rim-light";
 import { useAuthStore } from "@/store/auth-store";
 import { useLegacyLinkCount, useLinkActions, useMyLinks } from "@/hooks/use-links";
-import { ProfileForm } from "@/components/profile-form";
-import { useMyProfile } from "@/hooks/use-profile";
+import { MyPageStatsSection } from "@/components/link-stats";
 import { SiteHeader } from "@/components/site-header";
 import { LoginRequired } from "@/components/login-required";
 import { AmbientBackground } from "@/components/ambient-background";
@@ -39,10 +38,11 @@ import { Label } from "@/components/ui/label";
 
 /**
  * /mypage — 내 링크 관리 (링크 관리 전용 페이지)
- * 링크 추가·수정·삭제·순서 변경은 모두 여기서 한다. 메인 편집 모드는 프로필·스킬·쇼릴만 다룬다.
+ * 링크 추가·수정·삭제·순서 변경은 모두 여기서 한다. 프로필(이름·username·소개)은 내 링크 페이지 카드에서 인라인으로 고친다.
  * 데이터 원본: Firestore users/{user.uid}/links (Google 로그인 사용자별, 메인 카드와 같은 컬렉션)
  * 로그인 전에는 폼·목록 대신 로그인 안내를 보여준다.
- * 상단: 제목 / 중간: 빠른 추가 폼 / 하단: 목록 (기본 최신순, '카드 순서' 보기에서 순서 변경)
+ * 상단: 제목 / 중간: 빠른 추가 폼 / 하단: 목록 (기본 최신순, '카드 순서' 보기에서 순서 변경, 항목마다 "· N 클릭")
+ * 맨 아래: 클릭 통계 섹션 (총 클릭수 + 링크별 클릭수 많은 순, 13주차)
  */
 
 /** 추가 시각 표시: "11월 4일 오후 12:07" */
@@ -64,7 +64,6 @@ export default function MyPage() {
   // 로그인 상태 (Firebase Auth · Google)
   const authStatus = useAuthStore((state) => state.status);
   const isSignedIn = authStatus === "signedIn";
-  const { profile: myProfile } = useMyProfile();
 
   // 로그아웃 상태로 들어오면 소개 페이지(/)로 보낸다
   const router = useRouter();
@@ -181,15 +180,6 @@ export default function MyPage() {
           />
         ) : (
           <>
-        {/* 상단: 프로필 수정 (username·displayName·bio → users/{uid}/profile/main) */}
-        {myProfile ? (
-          <ProfileForm key={myProfile.uid} profile={myProfile} />
-        ) : (
-          <div aria-busy="true" className="h-[340px] animate-pulse rounded-[0.75rem] bg-winter/[0.06]" />
-        )}
-
-        <div className="relative z-10 h-px w-full bg-gradient-to-r from-transparent via-winter/18 to-transparent" />
-
         <h2 className="relative z-10 -mb-3 text-sm font-semibold text-winter">링크 추가</h2>
 
         {/* 중간: 빠른 추가 폼 (입력 칸 세로 배치) */}
@@ -358,6 +348,10 @@ export default function MyPage() {
                         </Badge>
                       )}
                       <ExternalLink className="h-3 w-3 shrink-0 text-winter/50" aria-hidden="true" />
+                      {/* 클릭수: "제목 · N 클릭" (없으면 0) — 관리 화면이라 여기서 누른 건 세지 않는다 */}
+                      <span className="ml-auto shrink-0 pl-1 text-[11px] text-winter/50 tabular-nums">
+                        · {link.clickCount.toLocaleString("ko-KR")} 클릭
+                      </span>
                     </span>
                     <span className="block truncate text-[11px] text-winter/65">
                       {link.subtitle || link.href}
@@ -446,6 +440,14 @@ export default function MyPage() {
             </div>
           )}
         </section>
+
+        {/* 클릭 통계 섹션 (링크 관리 영역 아래) */}
+        {status === "ready" && (
+          <>
+            <div className="relative z-10 h-px w-full bg-gradient-to-r from-transparent via-winter/18 to-transparent" />
+            <MyPageStatsSection links={latestLinks} />
+          </>
+        )}
           </>
         )}
       </Card>

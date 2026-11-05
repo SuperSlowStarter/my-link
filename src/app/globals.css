@@ -338,3 +338,18 @@ dialog::backdrop {
     @apply font-sans;
   }
 }
+
+/* 13주차 클릭 통계: 진행 바가 왼쪽에서 자란다 (최종 길이는 인라인 scaleX) — 확 치고 길게 감속 */
+@keyframes statsBarGrow {
+  from {
+    transform: scaleX(0);
+  }
+}
+.stats-bar {
+  animation: statsBarGrow 700ms var(--ease-punch) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .stats-bar {
+    animation: none;
+  }
+}

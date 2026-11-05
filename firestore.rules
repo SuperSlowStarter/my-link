@@ -22,9 +22,12 @@ service cloud.firestore {
       allow read, write: if isOwner(userId);
 
       // 링크 — 읽기 누구나, 쓰기 본인만
+      // 예외(13주차 클릭 통계): clickCount를 정확히 +1 하는 수정은 누구나 (로그인 안 한 방문자 포함)
       match /links/{linkId} {
         allow read: if true;
-        allow create, update: if isOwner(userId) && validLink(request.resource.data);
+        allow create: if isOwner(userId) && validLink(request.resource.data);
+        allow update: if (isOwner(userId) && validLink(request.resource.data))
+          || isClickIncrement();
         allow delete: if isOwner(userId);
       }
 
@@ -65,6 +68,15 @@ service cloud.firestore {
       return data.title is string && data.title.size() > 0 && data.title.size() <= 40
         && data.url is string && data.url.size() <= 2048
         && (!('subtitle' in data) || (data.subtitle is string && data.subtitle.size() <= 60));
+    }
+
+    // 클릭 수 +1만 허용: 바뀐 필드가 clickCount 하나뿐이고, 새 값 = 이전 값(없으면 0) + 1
+    // → 방문자가 제목·주소를 바꾸거나, 클릭 수를 마음대로(예: 9999) 정하는 것은 막힌다.
+    // increment(1)은 서버가 계산한 결과값으로 검사된다.
+    function isClickIncrement() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['clickCount'])
+        && request.resource.data.clickCount is int
+        && request.resource.data.clickCount == resource.data.get('clickCount', 0) + 1;
     }
 
     function validProfile(data) {

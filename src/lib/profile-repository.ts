@@ -13,7 +13,6 @@ import {
   type Timestamp,
 } from "firebase/firestore/lite";
 import type { User } from "firebase/auth";
-import { DEFAULT_SHOWREEL, type ShowreelConfig } from "@/data/links";
 import { db, isFirebaseConfigured } from "@/lib/firebase";
 import { usernameCandidates, usernameFromEmail } from "@/lib/username";
 
@@ -33,25 +32,18 @@ export interface UserProfile {
   displayName: string;
   /** 소개글 */
   bio: string;
-  /** 직무 타이틀 */
-  role: string;
-  skills: string[];
-  showreel: ShowreelConfig;
   /** Google 프로필 사진 */
   photoURL: string;
   createdAtMs: number | null;
   updatedAtMs: number | null;
 }
 
-/** 프로필 기본 정보 (마이페이지 수정 폼) */
+/** 프로필 기본 정보 (내 링크 페이지 인라인 수정) */
 export interface ProfileBasics {
   username: string;
   displayName: string;
   bio: string;
 }
-
-/** 편집 모드에서 고치는 상세 정보 */
-export type ProfileDetails = Partial<Pick<UserProfile, "role" | "skills" | "showreel">>;
 
 const profileDoc = (uid: string) => doc(db, "users", uid, "profile", "main");
 const usernameDoc = (username: string) => doc(db, "usernames", username);
@@ -60,29 +52,16 @@ const toMs = (value: unknown) =>
   value && typeof (value as Timestamp).toMillis === "function" ? (value as Timestamp).toMillis() : null;
 
 function fromDocument(uid: string, data: DocumentData): UserProfile {
-  const showreel = data.showreel && typeof data.showreel === "object" ? data.showreel : {};
   return {
     uid,
     username: typeof data.username === "string" ? data.username : "",
     displayName: typeof data.displayName === "string" ? data.displayName : "",
     bio: typeof data.bio === "string" ? data.bio : "",
-    role: typeof data.role === "string" ? data.role : "",
-    skills: Array.isArray(data.skills) ? data.skills.filter((s: unknown) => typeof s === "string") : [],
-    showreel: { ...EMPTY_SHOWREEL, ...showreel },
     photoURL: typeof data.photoURL === "string" ? data.photoURL : "",
     createdAtMs: toMs(data.createdAt),
     updatedAtMs: toMs(data.updatedAt),
   };
 }
-
-/** 새 사용자의 쇼릴 기본값: 꺼둔 상태 */
-const EMPTY_SHOWREEL: ShowreelConfig = {
-  enabled: false,
-  title: "",
-  subtitle: "",
-  youtubeUrl: "",
-  badge: "",
-};
 
 /* ------------------------------------------------------------------ */
 /* 로그인 전 브라우저에 저장했던 프로필 (최초 1회, 첫 계정만 가져간다)     */
@@ -92,9 +71,6 @@ const LEGACY_CLAIMED_KEY = "mylink_legacy_profile_claimed";
 
 interface LegacySeed {
   bio?: string;
-  role?: string;
-  skills?: string[];
-  showreel?: ShowreelConfig;
 }
 
 function readLegacyProfile(): LegacySeed | null {
@@ -105,12 +81,6 @@ function readLegacyProfile(): LegacySeed | null {
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     return {
       bio: typeof parsed.bio === "string" ? parsed.bio : undefined,
-      role: typeof parsed.role === "string" ? parsed.role : undefined,
-      skills: Array.isArray(parsed.skills) ? (parsed.skills as string[]) : undefined,
-      showreel:
-        parsed.showreel && typeof parsed.showreel === "object"
-          ? { ...DEFAULT_SHOWREEL, ...(parsed.showreel as Partial<ShowreelConfig>) }
-          : undefined,
     };
   } catch {
     return null;
@@ -170,9 +140,6 @@ export async function ensureProfile(user: User): Promise<void> {
       username: chosen,
       displayName: (user.displayName ?? "").trim().slice(0, 30) || chosen,
       bio: legacy?.bio ?? "",
-      role: legacy?.role ?? "",
-      skills: legacy?.skills ?? [],
-      showreel: legacy?.showreel ?? EMPTY_SHOWREEL,
       photoURL: user.photoURL ?? "",
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
@@ -229,7 +196,7 @@ export async function isDisplayNameTaken(displayName: string, uid: string): Prom
 }
 
 /**
- * 마이페이지 프로필 저장 (username·displayName·bio)
+ * 프로필 저장 (username·displayName·bio — 내 링크 페이지 인라인 수정)
  * username이 바뀌면 같은 트랜잭션 안에서 중복을 확인하고, 새 이름을 차지한 뒤 예전 이름을 놓아준다.
  * 이미 다른 사람이 쓰는 username이면 UsernameTakenError를 던진다.
  * displayName이 바뀌면 저장 전에 다른 사용자와 같은지 조회하고, 같으면 DisplayNameTakenError를 던져 저장을 중단한다.
@@ -269,11 +236,6 @@ export async function saveProfileBasics(uid: string, basics: ProfileBasics): Pro
       { merge: true }
     );
   });
-}
-
-/** 편집 모드 상세 정보 저장 (직무·스킬·쇼릴) */
-export async function updateProfileDetails(uid: string, details: ProfileDetails): Promise<void> {
-  await updateDoc(profileDoc(uid), { ...details, updatedAt: serverTimestamp() });
 }
 
 /** 저장 전에 미리 확인 (입력하면서 보여주는 용도, 최종 확인은 saveProfileBasics 트랜잭션) */

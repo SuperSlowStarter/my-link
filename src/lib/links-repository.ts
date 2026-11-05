@@ -6,6 +6,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  increment,
   orderBy,
   query,
   serverTimestamp,
@@ -32,6 +33,8 @@ export interface StoredLink extends LinkItem {
   order: number;
   /** 서버 시각(ms). 저장 직후 서버 응답 전에는 추정값 */
   createdAtMs: number;
+  /** 클릭 수 (없으면 0) — 링크를 누를 때마다 서버에서 +1 */
+  clickCount: number;
 }
 
 /** 링크 추가·수정 입력값 (id는 Firestore가 정한다) */
@@ -46,6 +49,8 @@ export interface LinkDocument {
   badge?: string;
   variant: "primary" | "glass";
   order: number;
+  /** 클릭 수 — increment(1)로만 늘린다 (없으면 0으로 본다) */
+  clickCount?: number | FieldValue;
   createdAt: FieldValue | Timestamp;
   updatedAt: FieldValue | Timestamp;
 }
@@ -85,6 +90,7 @@ function fromDocument(id: string, data: DocumentData): StoredLink {
     variant: data.variant === "primary" ? "primary" : "glass",
     order: typeof data.order === "number" ? data.order : Number.MAX_SAFE_INTEGER,
     createdAtMs: createdAt?.toMillis?.() ?? Date.now(),
+    clickCount: typeof data.clickCount === "number" && data.clickCount > 0 ? data.clickCount : 0,
   };
 }
 
@@ -167,6 +173,23 @@ export async function reorderLinkDocs(uid: string, orderedIds: string[]): Promis
     batch.update(linkDoc(uid, id), { order: index, updatedAt: serverTimestamp() });
   });
   await withTimeout(batch.commit());
+}
+
+/* ------------------------------------------------------------------ */
+/* 클릭 수 +1 (13주차: 클릭 통계)                                       */
+/* ------------------------------------------------------------------ */
+/**
+ * 링크를 누르면 users/{ownerUid}/links/{linkId}.clickCount 를 서버에서 +1 한다.
+ * - increment(1): 브라우저가 "지금 값 + 1"을 계산해 덮어쓰는 게 아니라, Firestore 서버가 더한다.
+ *   두 사람이 동시에 눌러도(둘 다 5를 읽고 6을 쓰는 문제) 손실 없이 5 → 7이 된다.
+ * - 필드가 없던 예전 링크는 0에서 시작해 1이 된다.
+ * - 방문자(로그인 안 함)도 누를 수 있어야 하므로, 보안 규칙은 "clickCount만, 정확히 +1"인 수정만 누구에게나 허용한다.
+ * - ownerUid는 링크 주인(페이지 주인)이다. 누른 사람의 uid가 아니다.
+ */
+export async function incrementLinkClick(ownerUid: string, linkId: string): Promise<void> {
+  if (!isFirebaseConfigured) throw new Error("not-configured");
+  if (!ownerUid || !linkId) throw new Error("invalid-link");
+  await withTimeout(updateDoc(linkDoc(ownerUid, linkId), { clickCount: increment(1) }));
 }
 
 /* ------------------------------------------------------------------ */

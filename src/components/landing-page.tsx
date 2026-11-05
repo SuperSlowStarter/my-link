@@ -8,6 +8,7 @@ import {
   Link2,
   Mail,
   MousePointerClick,
+  Pencil,
   Play,
   Share2,
   Sparkles,
@@ -120,7 +121,7 @@ function Hero() {
           style={delay(160)}
           className="animate-glass-entry mt-6 max-w-[34rem] text-[1.05rem] leading-[1.7] text-winter/70"
         >
-          쇼릴, 유튜브, 인스타그램, 외주 문의까지. 흩어진 채널을 유리처럼 맑은 카드 한 장에 모으세요.
+          포트폴리오, 유튜브, 인스타그램, 외주 문의까지. 흩어진 채널을 유리처럼 맑은 카드 한 장에 모으세요.
           Google 계정으로 로그인하면 링크가 내 계정에 저장되어 어느 기기에서든 그대로 이어져요.
         </p>
 
@@ -172,20 +173,12 @@ function PreviewCard() {
             </span>
           </span>
           <p className="relative z-10 mt-3 text-lg font-bold tracking-tight text-winter">@yourname</p>
-          <p className="relative z-10 mt-0.5 font-mono text-[10px] tracking-[0.18em] text-hearth uppercase">
-            Motion Designer
+          <p className="relative z-10 mt-2 max-w-[24ch] text-center text-[11px] leading-relaxed break-keep text-winter/70">
+            움직이는 것을 만듭니다. 외주·협업 문의 환영해요.
           </p>
 
-          <div className="relative z-10 mt-4 flex flex-wrap justify-center gap-1.5">
-            {["After Effects", "Blender", "C4D"].map((skill) => (
-              <span key={skill} className="rounded-[4px] bg-winter/10 px-2 py-0.5 text-[10px] text-winter/80">
-                {skill}
-              </span>
-            ))}
-          </div>
-
           <div className="relative z-10 mt-5 flex w-full flex-col gap-2">
-            <PreviewRow primary icon={Play} title="2026 Showreel" sub="2D · 3D · Kinetic" badge="FEATURED" />
+            <PreviewRow primary icon={Play} title="Vimeo 포트폴리오" sub="2D · 3D · Kinetic" badge="FEATURED" />
             <PreviewRow icon={Youtube} title="YouTube" sub="작업 과정 브이로그" />
             <PreviewRow icon={Instagram} title="Instagram" sub="짧은 모션 실험" />
             <PreviewRow icon={Mail} title="외주 문의" sub="hello@example.com" />
@@ -252,12 +245,12 @@ function Features() {
           className="sm:col-span-2 lg:row-span-2"
           icon={LayoutGrid}
           title="흩어진 채널을 한 장에"
-          body="쇼릴, 유튜브, 인스타그램, 포트폴리오, 외주 문의 메일까지. 아이콘·배지·강조 스타일로 중요한 링크를 먼저 보이게 하고, 순서는 원하는 대로 바꿀 수 있어요."
+          body="Vimeo, 유튜브, 인스타그램, 포트폴리오, 외주 문의 메일까지. 아이콘·배지·강조 스타일로 중요한 링크를 먼저 보이게 하고, 순서는 원하는 대로 바꿀 수 있어요."
           large
         >
           <div className="mt-6 flex flex-wrap gap-2" aria-hidden="true">
             {[
-              { icon: Play, label: "Showreel" },
+              { icon: Play, label: "Vimeo" },
               { icon: Youtube, label: "YouTube" },
               { icon: Instagram, label: "Instagram" },
               { icon: Link2, label: "Behance" },
@@ -275,9 +268,9 @@ function Features() {
         </FeatureCard>
 
         <FeatureCard
-          icon={Play}
-          title="쇼릴은 카드 안에서 바로"
-          body="방문자가 페이지를 떠나지 않고 16:9 플레이어로 대표 쇼릴을 감상해요."
+          icon={Pencil}
+          title="보이는 그대로 고치기"
+          body="내 카드에서 이름·username·소개글을 눌러 그 자리에서 바로 수정해요. 따로 편집 화면이 없어요."
         />
         <FeatureCard
           icon={Cloud}

@@ -67,6 +67,7 @@ export function PublicProfilePage({ uid, username }: { uid: string; username: st
       <AmbientBackground />
       {profile && <title>{`${profile.displayName} (@${profile.username}) | MyLink`}</title>}
       <SiteHeader
+        hideMyPage={isOwner}
         actions={
           isOwner ? (
             <Link href="/" className={buttonVariants({ variant: "glass", size: "sm" })}>

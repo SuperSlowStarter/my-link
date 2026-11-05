@@ -1,9 +1,9 @@
 import { z } from "zod";
-import { extractYoutubeVideoId, type LinkIconType } from "@/data/links";
+import type { LinkIconType } from "@/data/links";
 import { RESERVED_USERNAMES, USERNAME_MAX, USERNAME_MIN, USERNAME_PATTERN } from "@/lib/username";
 
 /**
- * 편집 모드 유효성 검사 스키마 (Zod + React Hook Form)
+ * 입력 유효성 검사 스키마 (Zod + React Hook Form)
  * 에러 문구는 화면에 그대로 노출되므로 한국어로 작성한다.
  */
 
@@ -75,7 +75,7 @@ export type QuickLinkValues = z.infer<typeof quickLinkSchema>;
 /* ------------------------------------------------------------------ */
 /* 프로필 기본 정보                                                     */
 /* ------------------------------------------------------------------ */
-/** 마이페이지 프로필 수정 (username · displayName · bio) */
+/** 프로필 인라인 수정 (username · displayName · bio) */
 export const profileBasicsSchema = z.object({
   username: z
     .string()
@@ -93,49 +93,3 @@ export const profileBasicsSchema = z.object({
   bio: z.string().trim().max(200, "소개글은 200자 이내로 입력해주세요."),
 });
 export type ProfileBasicsValues = z.infer<typeof profileBasicsSchema>;
-
-/** 편집 모드: 직무 타이틀 */
-export const profileRoleSchema = z.object({
-  role: z.string().trim().max(40, "직무 타이틀은 40자 이내로 입력해주세요."),
-});
-export type ProfileRoleValues = z.infer<typeof profileRoleSchema>;
-
-/* ------------------------------------------------------------------ */
-/* 대표 쇼릴                                                            */
-/* ------------------------------------------------------------------ */
-export const showreelSchema = z.object({
-  title: z
-    .string()
-    .trim()
-    .min(1, "쇼릴 제목을 입력해주세요.")
-    .max(40, "쇼릴 제목은 40자 이내로 입력해주세요."),
-  badge: z.string().trim().max(10, "배지는 10자 이내로 입력해주세요."),
-  subtitle: z.string().trim().max(60, "부제목은 60자 이내로 입력해주세요."),
-  youtubeUrl: z
-    .string()
-    .trim()
-    .min(1, "YouTube 주소를 입력해주세요.")
-    .refine(
-      (value) => extractYoutubeVideoId(value) !== null,
-      "유효한 YouTube 주소가 아니에요. (예: https://youtu.be/영상ID)"
-    ),
-});
-export type ShowreelValues = z.infer<typeof showreelSchema>;
-
-/* ------------------------------------------------------------------ */
-/* 기술 스택 태그 (중복 검사는 현재 목록이 필요해 함수로 만든다)          */
-/* ------------------------------------------------------------------ */
-export const makeSkillSchema = (existing: string[]) =>
-  z.object({
-    skill: z
-      .string()
-      .trim()
-      .min(1, "추가할 스킬을 입력해주세요.")
-      .max(20, "스킬 태그는 20자 이내로 입력해주세요.")
-      .refine(
-        (value) =>
-          !existing.some((skill) => skill.toLowerCase() === value.toLowerCase()),
-        "이미 등록된 스킬이에요."
-      ),
-  });
-export type SkillValues = { skill: string };

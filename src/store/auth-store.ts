@@ -11,17 +11,13 @@ import {
 } from "firebase/auth";
 import { getFirebaseAuth, isFirebaseConfigured } from "@/lib/firebase";
 import { beginLoading } from "@/store/loading-store";
-import {
-  displayNameFromEmail,
-  subscribeUserProfile,
-  upsertUserProfile,
-  type UserProfileDoc,
-} from "@/lib/users-repository";
+import { displayNameFromEmail, upsertUserProfile } from "@/lib/users-repository";
 
 /**
  * 인증 상태 (Firebase Auth + Google 로그인)
  * - status: loading(확인 중) → signedIn / signedOut
- * - 로그인하면 users/{uid} 문서에 계정 정보를 기록하고, 그 문서를 실시간 구독해 profile에 담는다.
+ * - 로그인하면 users/{uid} 문서에 계정 정보를 기록한다. (Firestore 실시간 구독 없음 — 데이터 조회는 TanStack Query)
+ * - onAuthStateChanged는 Firebase Auth의 로그인 상태 감시라 유지한다 (새로고침해도 로그인 유지).
  */
 export interface AuthUser {
   uid: string;
@@ -35,8 +31,6 @@ type AuthStatus = "loading" | "signedIn" | "signedOut";
 interface AuthState {
   status: AuthStatus;
   user: AuthUser | null;
-  /** Firestore users/{uid} 문서 */
-  profile: UserProfileDoc | null;
   error: string | null;
   pending: boolean;
 
@@ -68,7 +62,6 @@ function describeAuthError(error: unknown): string {
 export const useAuthStore = create<AuthState>()((set) => ({
   status: "loading",
   user: null,
-  profile: null,
   error: null,
   pending: false,
 
@@ -141,7 +134,6 @@ export const useAuthStore = create<AuthState>()((set) => ({
 /* 인증 상태 감시 (앱 전체에서 한 번만)                                  */
 /* ------------------------------------------------------------------ */
 let started = false;
-let stopProfile: (() => void) | null = null;
 
 function startAuthListener() {
   if (started) return;
@@ -158,11 +150,9 @@ function startAuthListener() {
   onAuthStateChanged(getFirebaseAuth(), (firebaseUser) => {
     endInitialCheck?.();
     endInitialCheck = null;
-    stopProfile?.();
-    stopProfile = null;
 
     if (!firebaseUser) {
-      useAuthStore.setState({ status: "signedOut", user: null, profile: null });
+      useAuthStore.setState({ status: "signedOut", user: null });
       return;
     }
 
@@ -177,21 +167,12 @@ function startAuthListener() {
       },
     });
 
-    // users/{uid}에 계정 정보 기록 → 같은 문서를 구독해 화면에 보여준다
+    // users/{uid}에 계정 정보(이메일·마지막 로그인) 기록
     upsertUserProfile(firebaseUser).catch((error: unknown) => {
       if (process.env.NODE_ENV !== "production") {
         console.warn("[firestore] 사용자 정보 저장 실패", error);
       }
     });
-    stopProfile = subscribeUserProfile(
-      firebaseUser.uid,
-      (profile) => useAuthStore.setState({ profile }),
-      (error) => {
-        if (process.env.NODE_ENV !== "production") {
-          console.warn("[firestore] 사용자 정보 구독 실패", error);
-        }
-      }
-    );
   });
 }
 

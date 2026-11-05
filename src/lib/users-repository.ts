@@ -1,12 +1,10 @@
 import {
   doc,
   getDoc,
-  onSnapshot,
   serverTimestamp,
   setDoc,
   type Timestamp,
-  type Unsubscribe,
-} from "firebase/firestore";
+} from "firebase/firestore/lite";
 import type { User } from "firebase/auth";
 import { db } from "@/lib/firebase";
 
@@ -67,36 +65,23 @@ export async function upsertUserProfile(user: User): Promise<void> {
   );
 }
 
-/** users/{uid} 실시간 구독 */
-export function subscribeUserProfile(
-  uid: string,
-  onChange: (profile: UserProfileDoc | null) => void,
-  onError: (error: unknown) => void
-): Unsubscribe {
-  return onSnapshot(
-    userDoc(uid),
-    (snapshot) => {
-      if (!snapshot.exists()) {
-        onChange(null);
-        return;
-      }
-      const data = snapshot.data({ serverTimestamps: "estimate" });
-      onChange({
-        uid,
-        // 예전 문서(Google 이름이 저장된 경우)도 이메일 앞부분으로 보여준다
-        displayName: displayNameFromEmail(
-          typeof data.email === "string" ? data.email : "",
-          typeof data.displayName === "string" ? data.displayName : ""
-        ),
-        googleName: typeof data.googleName === "string" ? data.googleName : "",
-        email: typeof data.email === "string" ? data.email : "",
-        photoURL: typeof data.photoURL === "string" ? data.photoURL : "",
-        provider: typeof data.provider === "string" ? data.provider : "",
-        createdAtMs: toMs(data.createdAt),
-        lastLoginAtMs: toMs(data.lastLoginAt),
-        legacyLinksImportedAtMs: toMs(data.legacyLinksImportedAt),
-      });
-    },
-    onError
-  );
+/** users/{uid} 계정 정보를 한 번 불러온다 (본인만 읽기 가능) */
+export async function fetchUserAccount(uid: string): Promise<UserProfileDoc | null> {
+  const snapshot = await getDoc(userDoc(uid));
+  if (!snapshot.exists()) return null;
+  const data = snapshot.data();
+  return {
+    uid,
+    displayName: displayNameFromEmail(
+      typeof data.email === "string" ? data.email : "",
+      typeof data.displayName === "string" ? data.displayName : ""
+    ),
+    googleName: typeof data.googleName === "string" ? data.googleName : "",
+    email: typeof data.email === "string" ? data.email : "",
+    photoURL: typeof data.photoURL === "string" ? data.photoURL : "",
+    provider: typeof data.provider === "string" ? data.provider : "",
+    createdAtMs: toMs(data.createdAt),
+    lastLoginAtMs: toMs(data.lastLoginAt),
+    legacyLinksImportedAtMs: toMs(data.legacyLinksImportedAt),
+  };
 }

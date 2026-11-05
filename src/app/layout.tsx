@@ -5,6 +5,7 @@ import { FirebaseAnalytics } from "@/components/firebase-analytics";
 import { AuthListener } from "@/components/auth-listener";
 import { LoadingOverlay } from "@/components/loading-overlay";
 import { AppToaster } from "@/components/app-toaster";
+import { QueryProvider } from "@/components/query-provider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -34,11 +35,14 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <body className="min-h-full flex flex-col" suppressHydrationWarning>
-        {children}
-        <FirebaseAnalytics />
-        <AuthListener />
-        <LoadingOverlay />
-        <AppToaster />
+        {/* 데이터 조회·쓰기: TanStack Query */}
+        <QueryProvider>
+          {children}
+          <FirebaseAnalytics />
+          <AuthListener />
+          <LoadingOverlay />
+          <AppToaster />
+        </QueryProvider>
       </body>
     </html>
   );

@@ -7,8 +7,8 @@ import { Menu } from "@base-ui/react/menu";
 import { toast } from "sonner";
 import { Copy, ExternalLink, House, ListPlus, LogOut, Settings2, UserRound } from "lucide-react";
 import { useAuthStore } from "@/store/auth-store";
-import { useLinksStore } from "@/store/links-store";
-import { useProfileStore } from "@/store/profile-store";
+import { useMyLinks } from "@/hooks/use-links";
+import { useMyProfile } from "@/hooks/use-profile";
 import { UserAvatar } from "@/components/user-avatar";
 
 const joinedFormat = new Intl.DateTimeFormat("ko-KR", {
@@ -111,7 +111,6 @@ function NavItem({
  */
 export function ProfileMenu() {
   const user = useAuthStore((state) => state.user);
-  const profile = useAuthStore((state) => state.profile);
   const pending = useAuthStore((state) => state.pending);
   const signOut = useAuthStore((state) => state.signOut);
   const router = useRouter();
@@ -121,17 +120,18 @@ export function ProfileMenu() {
     await signOut();
     router.push("/");
   };
-  const linkCount = useLinksStore((state) => (state.status === "ready" ? state.links.length : null));
-  // 공개 프로필 (users/{uid}/profile/main): username·displayName·사진
-  const publicProfile = useProfileStore((state) => state.profile);
+  const myLinks = useMyLinks();
+  const linkCount = myLinks.status === "ready" ? myLinks.links.length : null;
+  // 공개 프로필 (users/{uid}/profile/main): username·displayName·사진·가입일
+  const { profile: publicProfile } = useMyProfile();
 
   if (!user) return null;
 
   // 화면에는 Firestore users/{uid} 문서 값을 우선 보여주고, 아직 없으면 Auth 값으로 채운다
   const username = publicProfile?.username ?? "";
   const name = publicProfile?.displayName || user.displayName || "사용자";
-  const email = profile?.email || user.email;
-  const photoURL = publicProfile?.photoURL || profile?.photoURL || user.photoURL;
+  const email = user.email;
+  const photoURL = publicProfile?.photoURL || user.photoURL;
 
   return (
     <Menu.Root>
@@ -155,10 +155,10 @@ export function ProfileMenu() {
             </div>
             <div className="mx-2.5 mb-1 flex items-center gap-2 font-mono text-[10px] text-winter/45">
               <span>링크 {linkCount ?? "-"}개</span>
-              {profile?.createdAtMs && (
+              {publicProfile?.createdAtMs && (
                 <>
                   <span aria-hidden="true">·</span>
-                  <span>가입 {joinedFormat.format(profile.createdAtMs)}</span>
+                  <span>가입 {joinedFormat.format(publicProfile.createdAtMs)}</span>
                 </>
               )}
             </div>

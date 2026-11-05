@@ -22,9 +22,9 @@ import type { LinkItem } from "@/data/links";
 import { quickLinkSchema, type QuickLinkValues } from "@/lib/schemas";
 import { useRimLight } from "@/lib/use-rim-light";
 import { useAuthStore } from "@/store/auth-store";
-import { useLinksStore, useLinksSync } from "@/store/links-store";
+import { useLegacyLinkCount, useLinkActions, useMyLinks } from "@/hooks/use-links";
 import { ProfileForm } from "@/components/profile-form";
-import { useProfileStore } from "@/store/profile-store";
+import { useMyProfile } from "@/hooks/use-profile";
 import { SiteHeader } from "@/components/site-header";
 import { LoginRequired } from "@/components/login-required";
 import { AmbientBackground } from "@/components/ambient-background";
@@ -64,7 +64,7 @@ export default function MyPage() {
   // 로그인 상태 (Firebase Auth · Google)
   const authStatus = useAuthStore((state) => state.status);
   const isSignedIn = authStatus === "signedIn";
-  const myProfile = useProfileStore((state) => state.profile);
+  const { profile: myProfile } = useMyProfile();
 
   // 로그아웃 상태로 들어오면 소개 페이지(/)로 보낸다
   const router = useRouter();
@@ -72,26 +72,14 @@ export default function MyPage() {
     if (authStatus === "signedOut") router.replace("/");
   }, [authStatus, router]);
 
-  // 로그인하면 users/{uid}/links 를 불러오고(createdAt 최신순), 변경이 생기면 바로 갱신된다
-  useLinksSync();
-  const latestLinks = useLinksStore((state) => state.links);
-  const orderedLinks = useLinksStore((state) => state.orderedLinks);
-  const status = useLinksStore((state) => state.status);
-  const storeError = useLinksStore((state) => state.error);
-  const clearStoreError = useLinksStore((state) => state.clearError);
-  const addLink = useLinksStore((state) => state.addLink);
-  const updateLink = useLinksStore((state) => state.updateLink);
-  const deleteLink = useLinksStore((state) => state.deleteLink);
-  const moveLink = useLinksStore((state) => state.moveLink);
-  const legacyCount = useLinksStore((state) => state.legacyCount);
-  const importLegacy = useLinksStore((state) => state.importLegacy);
-  const [importing, setImporting] = useState(false);
+  // 로그인하면 users/{uid}/links 를 조회한다 (TanStack Query, createdAt 최신순). 쓰기 후에는 다시 조회.
+  const { links: latestLinks, orderedLinks, status, error: storeError } = useMyLinks();
+  const { addLink, updateLink, deleteLink, moveLink, importLegacy, isImporting: importing } = useLinkActions();
+  // 내 목록이 비었을 때만 이전 공용 링크 개수를 조회
+  const legacyCount = useLegacyLinkCount(status === "ready" && latestLinks.length === 0);
+  const clearStoreError = () => void 0;
 
-  const handleImportLegacy = async () => {
-    setImporting(true);
-    await importLegacy();
-    setImporting(false);
-  };
+  const handleImportLegacy = () => importLegacy();
 
   const [sortMode, setSortMode] = useState<SortMode>("latest");
   const links = sortMode === "latest" ? latestLinks : orderedLinks;
@@ -108,9 +96,9 @@ export default function MyPage() {
     setEditingLink(link);
     setIsModalOpen(true);
   };
-  // 모달은 바로 닫히고, Firestore 쓰기 실패는 목록 위 알림으로 보여준다
+  // 모달은 바로 닫히고, 결과는 Sonner 알림으로 보여준다
   const handleModalSave = (linkData: Omit<LinkItem, "id">, id?: string) => {
-    if (id) void updateLink(id, linkData);
+    if (id) updateLink(id, linkData);
     else void addLink(linkData);
   };
 
@@ -130,7 +118,7 @@ export default function MyPage() {
     defaultValues: { title: "", href: "" },
   });
 
-  // 검사 통과 → Firestore에 저장(목록은 구독으로 자동 반영)
+  // 검사 통과 → Firestore에 저장(성공하면 목록을 다시 조회)
   // → 입력 칸 자동 비우기 → 다음 입력을 위해 제목 칸에 포커스
   const onQuickSubmit = async (values: QuickLinkValues) => {
     clearErrors("root");
@@ -144,9 +132,7 @@ export default function MyPage() {
     });
     if (!id) {
       // 실패하면 입력값을 그대로 두어 다시 시도할 수 있게 한다
-      setError("root", {
-        message: useLinksStore.getState().error ?? "링크를 저장하지 못했어요.",
-      });
+      setError("root", { message: "링크를 저장하지 못했어요. 잠시 후 다시 시도해주세요." });
       return;
     }
     reset({ title: "", href: "" });
@@ -390,7 +376,7 @@ export default function MyPage() {
                       <>
                         <button
                           type="button"
-                          onClick={() => void moveLink(index, "up")}
+                          onClick={() => moveLink(index, "up")}
                           disabled={index === 0}
                           aria-label={`${link.title} 위로 이동`}
                           className={ICON_BUTTON}
@@ -399,7 +385,7 @@ export default function MyPage() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => void moveLink(index, "down")}
+                          onClick={() => moveLink(index, "down")}
                           disabled={index === links.length - 1}
                           aria-label={`${link.title} 아래로 이동`}
                           className={ICON_BUTTON}
@@ -421,7 +407,7 @@ export default function MyPage() {
                       type="button"
                       variant="destructive"
                       size="icon-xs"
-                      onClick={() => void deleteLink(link.id)}
+                      onClick={() => deleteLink(link.id)}
                       aria-label={`${link.title} 삭제`}
                     >
                       <Trash2 className="size-3" />

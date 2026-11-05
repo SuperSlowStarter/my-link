@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Link2, Pencil, UserRound } from "lucide-react";
-import { describeFirestoreError, sortByOrder, subscribeLinks, type StoredLink } from "@/lib/links-repository";
-import { subscribeProfile, type UserProfile } from "@/lib/profile-repository";
+import { describeFirestoreError } from "@/lib/links-repository";
+import { useLinksQuery } from "@/hooks/use-links";
+import { useProfileQuery } from "@/hooks/use-profile";
 import { useRimLight } from "@/lib/use-rim-light";
 import { useAuthStore } from "@/store/auth-store";
 import { AmbientBackground } from "@/components/ambient-background";
@@ -44,7 +44,7 @@ export function PublicProfileSkeleton() {
 /**
  * 공개 개인 페이지 본문 — 로그인 없이 누구나 볼 수 있다.
  * 상단: 프로필 카드(이름·소개글) / 하단: 링크 리스트(버튼 형태)
- * users/{uid}/profile/main 과 users/{uid}/links 를 실시간 구독한다.
+ * users/{uid}/profile/main 과 users/{uid}/links 를 TanStack Query로 조회한다 (실시간 구독 없음).
  */
 export function PublicProfilePage({ uid, username }: { uid: string; username: string }) {
   useRimLight();
@@ -52,20 +52,12 @@ export function PublicProfilePage({ uid, username }: { uid: string; username: st
   const viewerUid = useAuthStore((state) => state.user?.uid ?? null);
   const isOwner = viewerUid === uid;
 
-  const [profile, setProfile] = useState<UserProfile | null | undefined>(undefined);
-  const [links, setLinks] = useState<StoredLink[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const stopProfile = subscribeProfile(uid, setProfile, (err) => setError(describeFirestoreError(err)));
-    const stopLinks = subscribeLinks(uid, setLinks, (err) => setError(describeFirestoreError(err)));
-    return () => {
-      stopProfile();
-      stopLinks();
-    };
-  }, [uid]);
-
-  const orderedLinks = useMemo(() => (links ? sortByOrder(links) : []), [links]);
+  // TanStack Query로 한 번 조회 (실시간 구독 없음) — 내 링크 페이지와 같은 캐시 키
+  const profileQuery = useProfileQuery(uid);
+  const linksQuery = useLinksQuery(uid);
+  const profile = profileQuery.isPending ? undefined : (profileQuery.data ?? null);
+  const orderedLinks = linksQuery.orderedLinks;
+  const error = profileQuery.error ? describeFirestoreError(profileQuery.error) : linksQuery.error;
 
   // username은 있는데 프로필 문서가 없으면 (삭제된 계정 등) 404와 같은 화면
   if (profile === null) return <NotFoundView username={username} />;
@@ -106,7 +98,7 @@ export function PublicProfilePage({ uid, username }: { uid: string; username: st
             <ProfileCardView
               profile={profile}
               links={orderedLinks}
-              linksLoading={links === null}
+              linksLoading={linksQuery.status === "loading"}
               emptyLinks={
                 <div className="flex flex-col items-center gap-2 rounded-[0.5rem] border border-dashed border-winter/20 bg-winter/[0.05] p-6 text-center">
                   <Link2 className="h-6 w-6 text-hearth/70" aria-hidden="true" />

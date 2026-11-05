@@ -22,9 +22,9 @@ import {
   type ShowreelValues,
   type SkillValues,
 } from "@/lib/schemas";
-import { useLinksStore } from "@/store/links-store";
+import { useMyLinks } from "@/hooks/use-links";
 import { UserAvatar } from "@/components/user-avatar";
-import { useProfileStore } from "@/store/profile-store";
+import { useMyProfile, useProfileDetailsAutosave } from "@/hooks/use-profile";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { FieldError } from "@/components/ui/field-error";
@@ -43,7 +43,7 @@ const SECTION =
  * 편집 모드 본문 — 직무·기술 스택·쇼릴 (Firestore users/{uid}/profile/main)
  * 이름·소개·username은 마이페이지 프로필 수정, 링크는 /mypage 링크 관리에서 다룬다.
  * - 입력은 React Hook Form이 관리하고 Zod 스키마로 검사한다.
- * - 검사를 통과한 값만 입력이 멈춘 뒤(600ms) Firestore에 자동 저장된다.
+ * - 검사를 통과한 값만 입력이 멈춘 뒤(600ms) Firestore에 자동 저장된다 (TanStack Query mutation).
  * - 통과하지 못한 칸은 아래에 오류 문구가 뜨고, 고칠 때까지 화면의 카드에는 마지막 정상 값이 유지된다.
  */
 export function ProfileEditor() {
@@ -71,8 +71,8 @@ export function ProfileEditor() {
 /* 1. 프로필 — 사진(Google)·이름·소개는 마이페이지, 여기서는 직무·스킬     */
 /* ------------------------------------------------------------------ */
 function ProfileInfoSection() {
-  const profile = useProfileStore((state) => state.profile);
-  const updateDetails = useProfileStore((state) => state.updateDetails);
+  const { profile } = useMyProfile();
+  const { updateDetails } = useProfileDetailsAutosave();
 
   const {
     register,
@@ -137,9 +137,8 @@ function ProfileInfoSection() {
 }
 
 function SkillsField() {
-  const skills = useProfileStore((state) => state.profile?.skills ?? NO_SKILLS);
-  const addSkill = useProfileStore((state) => state.addSkill);
-  const removeSkill = useProfileStore((state) => state.removeSkill);
+  const skills = useMyProfile().profile?.skills ?? NO_SKILLS;
+  const { addSkill, removeSkill } = useProfileDetailsAutosave();
 
   // 중복 검사를 위해 현재 목록이 바뀔 때마다 스키마를 다시 만든다
   const schema = useMemo(() => makeSkillSchema(skills), [skills]);
@@ -201,8 +200,8 @@ function SkillsField() {
 /* 2. 대표 쇼릴                                                         */
 /* ------------------------------------------------------------------ */
 function ShowreelSection() {
-  const showreel = useProfileStore((state) => state.profile?.showreel ?? NO_SHOWREEL);
-  const updateShowreel = useProfileStore((state) => state.updateShowreel);
+  const showreel = useMyProfile().profile?.showreel ?? NO_SHOWREEL;
+  const { updateShowreel } = useProfileDetailsAutosave();
 
   const {
     register,
@@ -350,7 +349,7 @@ function ShowreelSection() {
 /* 3. 링크 — 관리는 /mypage(내 링크 관리)에서                           */
 /* ------------------------------------------------------------------ */
 function LinksShortcut() {
-  const count = useLinksStore((state) => state.orderedLinks.length);
+  const count = useMyLinks().orderedLinks.length;
 
   return (
     <div className={SECTION}>

@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { Check, ExternalLink, Link2, Pencil, Plus } from "lucide-react";
-import { useLinksStore, useLinksSync } from "@/store/links-store";
-import { useProfileStore } from "@/store/profile-store";
+import { useMyLinks } from "@/hooks/use-links";
+import { useMyProfile } from "@/hooks/use-profile";
 import { useRimLight } from "@/lib/use-rim-light";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -15,37 +15,17 @@ import { SiteHeader } from "@/components/site-header";
 
 /**
  * 내 링크 페이지 (로그인한 사용자의 홈 /)
- * - 프로필: Firestore users/{uid}/profile/main · 링크: users/{uid}/links
+ * - 프로필: users/{uid}/profile/main · 링크: users/{uid}/links — TanStack Query로 조회 (실시간 구독 없음)
  * - 방문자에게 보이는 모습은 /{username} 공개 페이지와 같다 (ProfileCardView 공용).
- * - 로그인 전 방문자에게는 app/page.tsx가 소개 페이지(LandingPage)를 대신 보여준다.
+ * - 저장 결과·오류는 Sonner 알림으로 보여준다.
  */
 export function HubPage() {
   useRimLight();
 
-  const profile = useProfileStore((state) => state.profile);
-  const profileSavedAt = useProfileStore((state) => state.savedAt);
-  const profileError = useProfileStore((state) => state.error);
-
-  useLinksSync();
-  // 메인 카드는 편집 모드·마이페이지에서 직접 정한 순서대로
-  const links = useLinksStore((state) => state.orderedLinks);
-  const linksStatus = useLinksStore((state) => state.status);
-  const linksSavedAt = useLinksStore((state) => state.savedAt);
-  const linksError = useLinksStore((state) => state.error);
-  const clearLinksError = useLinksStore((state) => state.clearError);
-
+  const { profile } = useMyProfile();
+  // 메인 카드는 마이페이지에서 직접 정한 순서대로
+  const { orderedLinks: links, status: linksStatus } = useMyLinks();
   const [isEditMode, setIsEditMode] = useState(false);
-  const [noticeHiddenAt, setNoticeHiddenAt] = useState<number | null>(null);
-
-  // 저장 알림: 프로필·링크 중 마지막 저장을 2초간 표시
-  const savedAt = Math.max(linksSavedAt ?? 0, profileSavedAt ?? 0) || null;
-  useEffect(() => {
-    if (!savedAt) return;
-    const timer = window.setTimeout(() => setNoticeHiddenAt(savedAt), 2000);
-    return () => window.clearTimeout(timer);
-  }, [savedAt]);
-  const saveNotice = savedAt && noticeHiddenAt !== savedAt ? "Firestore에 저장됨" : null;
-  const error = linksError ?? profileError;
 
   return (
     <>
@@ -77,31 +57,6 @@ export function HubPage() {
           )
         }
       />
-
-      {/* 저장·오류 알림 (헤더 아래 우측) */}
-      <div className="pointer-events-none fixed top-[68px] right-4 z-[500] flex flex-col items-end gap-2">
-        {error && (
-          <button
-            type="button"
-            role="alert"
-            onClick={clearLinksError}
-            title="닫기"
-            className="animate-snap pointer-events-auto max-w-[280px] cursor-pointer rounded-[6px] border border-danger/40 bg-crow/90 px-2.5 py-1 text-left text-[11px] font-medium text-danger shadow-sm backdrop-blur-md"
-          >
-            {error}
-          </button>
-        )}
-        {saveNotice && !error && (
-          <span
-            key={savedAt}
-            role="status"
-            aria-live="polite"
-            className="animate-snap rounded-[6px] border border-hearth/40 bg-crow/85 px-2.5 py-1 font-mono text-[11px] font-medium text-hearth shadow-sm backdrop-blur-md"
-          >
-            {saveNotice}
-          </span>
-        )}
-      </div>
 
       <main className="relative flex flex-1 flex-col items-center justify-center overflow-x-hidden px-6 py-12">
         <Card className="animate-glass-entry w-full items-center p-[20px] text-center md:w-[80%] md:max-w-[480px] md:p-[28px] lg:w-[400px] lg:max-w-[400px]">

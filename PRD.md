@@ -26,11 +26,12 @@
 | 프레임워크 | **Next.js 16** (App Router, Turbopack) · **React 19** · **TypeScript** | 페이지 라우팅(`/`, `/mypage`), 클라이언트 컴포넌트 |
 | 스타일 | **Tailwind CSS v4** · `tw-animate-css` | ColorPallete 토큰(`bg-hearth`, `text-winter` 등), 이징 토큰(`ease-punch` 등) |
 | UI 프리미티브 | **shadcn/ui** 구조 + **@base-ui/react** · `cva` · `lucide-react` | 접근성 있는 버튼·스위치, 변형(variant) 분기, 아이콘 |
-| 상태관리 | **Zustand 5** (+ `persist` 미들웨어) | 프로필·링크 전역 상태, localStorage 영속화 (`src/store/*`) |
+| 서버 데이터 | **TanStack Query 5** (`useQuery`·`useMutation`, DevTools) | Firestore 조회·추가·수정·삭제·캐시·다시 조회 (`src/hooks/use-links.ts`, `src/hooks/use-profile.ts`) |
+| 상태관리 | **Zustand 5** | 화면 상태만 — 로그인 상태(`useAuthStore`), 진행 중 작업 문구(`useLoadingStore`) |
 | 폼 | **React Hook Form 7** (+ `@hookform/resolvers`) | 편집 모드(프로필·쇼릴)·/mypage(링크 빠른 추가·상세 모달) 입력 관리 |
 | 유효성 검사 | **Zod 4** | 입력 규칙과 한국어 오류 문구를 스키마 하나로 정의 (`src/lib/schemas.ts`) |
 | 저장소 | Phase 1: 브라우저 `localStorage` / Phase 2: **Firebase** (Cloud Firestore) | §2 로드맵 참조 |
-| 백엔드 (BaaS) | **Firebase 13** — App · Cloud Firestore · Authentication · Analytics (프로젝트 `my-dae-link`) | 링크는 Firestore `users/{uid}/links`, 사용자 정보는 `users/{uid}` |
+| 백엔드 (BaaS) | **Firebase 13** — App · **Cloud Firestore Lite**(`firebase/firestore/lite`, 실시간 없음) · Authentication · Analytics (프로젝트 `my-dae-link`) | 링크는 Firestore `users/{uid}/links`, 사용자 정보는 `users/{uid}` |
 | 인증 | **Firebase Authentication — Google 소셜 로그인** (`signInWithPopup`, 팝업이 막히면 `signInWithRedirect`) | 헤더 로그인 메뉴, 로그인 전 안내 화면, 사용자별 데이터 분리 (`src/store/auth-store.ts`) |
 | 알림 | **Sonner 2** (`toast`) | 링크 주소 복사 등 짧은 결과 알림 — 짙은 유리 패널, 헤더 아래 우측 (`src/components/app-toaster.tsx`) |
 
@@ -41,31 +42,34 @@
 향후 클라우드 DB 확장을 고려하여 **UI 컴포넌트와 데이터 저장소(Storage Layer)를 분리**하여 설계합니다.
 
 - **상태관리는 Zustand로 일원화합니다.** 컴포넌트는 스토어의 상태와 액션(`addLink`, `updateLink`, `deleteLink`, `moveLink`, `addSkill`, `removeSkill`, `updateShowreel`, `resetProfile` 등)만 사용하고, 저장 방식은 알지 못합니다.
-- **스토어 구성**
+- **데이터 조회·쓰기는 TanStack Query로 일원화했습니다 (2026-11-05).** Firestore 실시간 기능(`onSnapshot`)은 쓰지 않습니다.
+  - Firestore SDK도 실시간 리스너가 없는 **Firestore Lite**(`firebase/firestore/lite`)를 씁니다. 일반 SDK는 한 번 읽기(`getDoc`)에도 내부적으로 `Listen` 스트림을 여는데, Lite는 REST 요청(`runQuery`, `batchGet`, `commit`)만 보냅니다. 번들도 더 작습니다.
+  - **조회(`useQuery`):** 한 번 불러와 캐시합니다. 30초 동안은 캐시를 쓰고(`staleTime`), 창으로 돌아오면 다시 조회합니다(`refetchOnWindowFocus`). 다른 기기·탭에서 바꾼 내용은 다시 조회할 때 반영됩니다.
+  - **쓰기(`useMutation`):** 성공하면 관련 캐시를 무효화해 다시 조회합니다. 결과는 Sonner 알림(성공·실패)으로 보여줍니다.
+  - **로딩 오버레이:** `meta.loadingLabel`이 있는 진행 중인 쓰기(`useMutationState`)와 처음 조회(`useIsFetching`)를 보고 띄웁니다. 로그인·로그아웃·프로필 준비는 `useLoadingStore`.
+- **캐시 키 (`src/lib/query-client.ts`)**
 
-  | 스토어 | 파일 | 영속화 | 역할 |
+  | 키 | 데이터 | 조회 함수 | 쓰기 (mutation) |
   | :--- | :--- | :--- | :--- |
-  | `useProfileStore` | `src/store/profile-store.ts` | `persist` → localStorage `mylink_state_v1` | 메인 허브 프로필·기술 스택·쇼릴 |
-  | `useAuthStore` | `src/store/auth-store.ts` | Firebase Auth 세션 (자동 유지) + Firestore `users/{uid}` 구독 | 로그인 상태(`loading`·`signedIn`·`signedOut`), Google 로그인·로그아웃, 계정 정보 |
-  | `useLinksStore` | `src/store/links-store.ts` | **Firestore** `users/{uid}/links` (로그인한 사용자, 실시간 구독) | 메인 카드와 `/mypage`가 함께 쓰는 링크 목록·추가·수정·삭제·순서. 로그아웃 시 비움 |
+  | `["links", uid]` | `users/{uid}/links` (createdAt 최신순) | `fetchLinks` | 추가·수정·삭제·순서 변경·이전 링크 가져오기 → 이 키 무효화 |
+  | `["profile", uid]` | `users/{uid}/profile/main` (내 프로필·공개 페이지 공용) | `fetchProfile` | 마이페이지 저장 → 무효화 / 편집 모드 자동 저장 → 캐시를 먼저 고치고(낙관적 업데이트) 600ms 뒤 저장, 실패하면 무효화 |
+  | `["legacy-link-count"]` | `users/anonymous/links` 개수 | `countLegacyLinks` | 가져오기 후 무효화 |
 
-- 저장 형식은 기존과 같은 순수 `ProfileData` JSON이라 이전 데이터가 그대로 읽히며, 일부 값이 깨져 있으면 기본값으로 채워 복구합니다.
-- SSR과 첫 화면을 맞추기 위해 `skipHydration`으로 두고, 브라우저 마운트 후 `persist.rehydrate()`로 불러옵니다.
-- **링크는 Firestore로 마이그레이션했습니다 (2026-11-04).** `useLinksSync()`가 `onSnapshot`으로 목록을 구독하고, 쓰기는 `src/lib/links-repository.ts`를 거쳐 Firestore로 보냅니다. SDK의 지연 보정 덕분에 화면에는 즉시 반영됩니다.
-- **프로필도 Firestore로 이전했습니다 (2026-11-04).** `useProfileStore`가 `users/{uid}/profile/main`을 구독하고, 로그인할 때 프로필이 없으면 초기값을 만듭니다 (§3.7). 브라우저 localStorage는 더 이상 쓰지 않으며, 예전에 저장된 값은 첫 로그인 계정의 초기값으로 한 번만 가져옵니다.
+- **훅 (`src/hooks/*`):** `useMyLinks`·`useLinksQuery(uid)`·`useLinkActions`·`useLegacyLinkCount` / `useMyProfile`·`useProfileQuery(uid)`·`useSaveProfileBasics`·`useProfileDetailsAutosave`.
+- **로그인 직후:** `AuthListener`가 프로필이 없으면 초기값을 만들고(`ensureProfile`) `["profile", uid]`를 무효화합니다. 로그아웃하면 `links`·`profile` 캐시를 지웁니다. 로그인 상태 감시(`onAuthStateChanged`)는 Firebase Auth 기능이라 유지합니다 (Firestore 실시간 구독 아님).
+- 프로필은 `users/{uid}/profile/main`에 있으며, 예전 브라우저 localStorage 값은 첫 로그인 계정의 초기값으로 한 번만 가져옵니다.
 
 ```mermaid
 flowchart LR
-  UI["MyLink UI (View / Edit Mode)"] --> Form["React Hook Form + Zod<br/>(검사 통과 값만 전달)"]
-  Form --> Profile["useProfileStore<br/>(프로필·쇼릴)"]
-  Form --> Links["useLinksStore<br/>(링크)"]
-  UI --> Profile
-  UI --> Links
-  Profile -->|persist| Local["Browser LocalStorage"]
-  Auth["useAuthStore<br/>(Google 로그인)"] -->|user.uid| Links
-  Auth -->|upsert + 구독| UserDoc["Cloud Firestore<br/>users/{uid}"]
-  Links -->|links-repository| Cloud["Cloud Firestore<br/>users/{uid}/links"]
-  Cloud -->|onSnapshot 실시간| Links
+  UI["MyLink UI"] --> Form["React Hook Form + Zod<br/>(검사 통과 값만 전달)"]
+  Form --> Mut["useMutation<br/>(추가·수정·삭제·저장)"]
+  UI --> Q["useQuery<br/>(링크·프로필 조회)"]
+  Auth["useAuthStore<br/>(Google 로그인)"] -->|user.uid| Q
+  Auth -->|user.uid| Mut
+  Q -->|fetch (REST)| Lite["Firestore Lite<br/>users/{uid}/links · profile/main"]
+  Mut -->|write (REST)| Lite
+  Mut -->|성공 시 invalidate| Cache[("TanStack Query 캐시")]
+  Cache --> Q
 ```
 
 | 단계 | 저장 방식 | 주요 목표 및 특징 |
@@ -155,9 +159,9 @@ flowchart LR
 
   - 모든 링크 함수는 로그인한 사용자의 `user.uid`를 받아 `users/{uid}/links`에만 읽고 씁니다. 로그인 전에는 호출하지 않습니다.
   - `/mypage`에서 빠르게 추가한 링크는 `subtitle: ""`, `iconType: "link"`, `variant: "glass"` 기본값으로 저장되어 메인 카드에도 바로 표시됩니다.
-  - **불러오기:** 로그인하면 `query(users/{uid}/links, orderBy("createdAt", "desc"))`를 `onSnapshot`으로 구독해 **createdAt 최신순**으로 불러오고, 추가·수정·삭제가 생기면 목록이 자동으로 갱신됩니다. 다른 계정으로 바꾸면 구독도 그 계정 경로로 바뀝니다.
+  - **불러오기:** 로그인하면 `query(users/{uid}/links, orderBy("createdAt", "desc"))`를 `getDocs`로 한 번 조회해 **createdAt 최신순**으로 불러옵니다 (TanStack Query `["links", uid]`). 추가·수정·삭제하면 이 캐시를 무효화해 다시 조회합니다. 다른 계정으로 바꾸면 그 계정의 키로 조회합니다.
   - **화면별 정렬:** `/mypage` 목록은 최신순 그대로(`links`), 메인 카드는 직접 정한 `order` 오름차순(`orderedLinks`, `order`가 없는 예전 문서는 맨 뒤).
-  - 저장소 함수: `subscribeLinks`, `addLinkDoc`, `updateLinkDoc`, `deleteLinkDoc`, `reorderLinkDocs`(배치), `countLegacyLinks`, `importLegacyLinks` (`src/lib/links-repository.ts`) / `upsertUserProfile`, `subscribeUserProfile` (`src/lib/users-repository.ts`).
+  - 저장소 함수: `fetchLinks`, `addLinkDoc`, `updateLinkDoc`, `deleteLinkDoc`, `reorderLinkDocs`(배치), `countLegacyLinks`, `importLegacyLinks` (`src/lib/links-repository.ts`) / `upsertUserProfile`, `fetchUserAccount` (`src/lib/users-repository.ts`) / `fetchProfile`, `ensureProfile`, `saveProfileBasics`, `updateProfileDetails` (`src/lib/profile-repository.ts`).
 - **이전 공용 링크 가져오기:** 로그인 기능 전에는 모든 링크가 공용 경로 `users/anonymous/links`에 있었습니다. 로그인한 사용자의 목록이 비어 있고 공용 경로에 링크가 있으면, `/mypage`에 `이전 링크 N개 가져오기` 버튼이 나타납니다.
   - 누르면 공용 링크를 같은 문서 ID로 `users/{uid}/links`에 **복사**합니다 (원본은 그대로, 여러 번 눌러도 중복 없음). 기록은 `users/{uid}.legacyLinksImportedAt`.
   - 예전의 localStorage → `users/anonymous` 자동 마이그레이션은 로그인 도입으로 없앴습니다.
@@ -237,7 +241,7 @@ flowchart LR
 - **관리 위치:** 모든 링크 CRUD는 **`/mypage`(내 링크 관리)** 한 곳에서 합니다. 메인 카드와 같은 Firestore 컬렉션이라 바꾸면 메인 카드에 즉시 반영됩니다.
 - **CRUD 동작:**
   - **추가 (Create):** ① 빠른 추가 — 제목·주소만 입력하고 `추가` (나머지는 기본값: 아이콘 `link`, 스타일 `glass`) ② 상세 추가 — `상세 추가` 버튼으로 글래스 모달을 열어 부제목·아이콘·배지·스타일까지 입력
-  - **조회 (Read):** 페이지가 열리면 Firestore에서 불러오고 실시간으로 갱신 (기본 최신순)
+  - **조회 (Read):** 페이지가 열리면 Firestore에서 한 번 불러옵니다 (TanStack Query, 기본 최신순). 쓰기 후·창으로 돌아올 때 다시 조회
   - **수정 (Update):** 항목의 연필 아이콘 → 같은 모달에 기존 값을 불러와 편집
   - **삭제 (Delete):** 항목의 휴지통 아이콘 → Firestore 문서 삭제
   - **순서 변경:** `카드 순서` 보기에서 위·아래 화살표로 메인 카드 표시 순서(`order`)를 변경
@@ -270,7 +274,7 @@ flowchart LR
 - **빠른 추가 동작:**
   1. `추가` 클릭 → 빈 칸·주소 형식 검사 (§3.5)
   2. 통과 시 Firestore `users/{uid}/links`에 저장 — 저장 중에는 버튼이 `저장 중...`으로 바뀌고 비활성화
-  3. 목록은 Firestore 실시간 구독이라 저장 즉시 반영됨 (실패하면 입력값을 유지하고 폼 아래에 오류 문구 표시)
+  3. 저장에 성공하면 목록을 다시 조회해 반영되고 Sonner 알림이 뜸 (실패하면 입력값을 유지하고 폼 아래에 오류 문구 표시)
   4. 입력 칸 자동 비우기 + 제목 칸으로 포커스 이동
 - **상세 추가·수정 모달:** 제목·부제목·주소·아이콘(8종)·배지(프리셋 NEW/FEATURED/HOT/OPEN)·스타일(Glass/Primary)을 입력하며, Zod 스키마로 검사합니다 (§3.5 링크 모달 규칙).
 - **목록:**
@@ -305,7 +309,7 @@ flowchart LR
 - **동작 순서:**
   1. URL에서 `username`을 추출합니다 (소문자로 맞추고 형식이 틀리면 바로 404).
   2. Firestore `usernames/{username}`에서 `userId`를 찾습니다 (서버에서 REST로 조회, username → userId 변환).
-  3. 찾은 userId로 `users/{userId}/profile/main`과 `users/{userId}/links`를 조회합니다 (브라우저에서 실시간 구독).
+  3. 찾은 userId로 `users/{userId}/profile/main`과 `users/{userId}/links`를 조회합니다 (브라우저에서 TanStack Query로 한 번 조회, 내 링크 페이지와 같은 캐시 키).
   4. 화면에 프로필 정보와 링크 리스트를 표시합니다 — 상단 프로필 카드(사진·이름·@username·직무·소개글·스킬), 하단 쇼릴 + 링크 리스트(버튼 형태, 카드 순서).
   5. username을 찾지 못하면 404 페이지(`app/not-found.tsx`)를 보여줍니다. 검색엔진 색인 제외(`noindex`).
 - **로그인 불필요:** 누구나 볼 수 있습니다. 본인이 보면 "방문자에게 보이는 내 공개 페이지예요" 안내와 `내 페이지 편집` 버튼이 보이고, 다른 사람에게는 `나도 MyLink 만들기` 링크가 보입니다.
@@ -792,13 +796,13 @@ flowchart TD
 | **M2. 글래스 링크 허브 + 편집 모드** | 완료 | 글래스 카드, 대표 쇼릴 인라인 재생, 편집 모드, 링크 CRUD, localStorage 저장 | 편집 내용이 새로고침 후에도 유지 |
 | **M3. 디자인 시스템 정비** | 완료 | ColorPallete 6색 토큰, 커서 반응형 번짐 림라이트, AE식 비대칭 이징 토큰 | Design.md 규격과 화면 일치 |
 | **M4. 링크 추가 기능 (Create) — 7주차** | 완료 (2026-11-04) | `/mypage` 페이지, 링크 추가 폼(제목·주소·버튼), 추가 시 목록 반영, 입력 칸 자동 비우기, 빈 칸 검증 / Zustand 상태관리, Zod + React Hook Form 유효성 검사 도입 | 체크리스트 6개 항목 통과 (§8.1) |
-| **M5. Firestore 링크 CRUD** | 완료 (2026-11-04) | Create·Read(실시간 구독, createdAt 최신순)·Update·Delete·순서 변경을 Firestore `users/anonymous/links`로 이전, localStorage 링크 1회 마이그레이션, **링크 관리를 `/mypage`로 일원화**(편집 모드는 프로필·쇼릴 전용) | 새로고침·다른 기기에서도 목록 유지, `/mypage` 변경이 메인 카드에 즉시 반영 |
+| **M5. Firestore 링크 CRUD** | 완료 (2026-11-04) | Create·Read(createdAt 최신순, 2026-11-05부터 TanStack Query 조회)·Update·Delete·순서 변경을 Firestore `users/anonymous/links`로 이전, localStorage 링크 1회 마이그레이션, **링크 관리를 `/mypage`로 일원화**(편집 모드는 프로필·쇼릴 전용) | 새로고침·다른 기기에서도 목록 유지, `/mypage` 변경이 메인 카드에 즉시 반영 |
 | **M6. Phase 2 — 로그인·개인화** | 완료 (2026-11-04) | Firebase SDK·Analytics / Google 소셜 로그인, 로그인 상태별 화면, `users/{uid}/links` 개인화 / 프로필 Firestore 이전(`users/{uid}/profile/main`), 프로필 수정·username 중복 체크, 공개 페이지 `/{username}`·404, 보안 규칙 배포·테스트 | 다른 기기·다른 사람도 `/{username}`에서 같은 링크를 보고, 쓰기는 본인만 가능 |
 
 ### 8.1 M4 체크리스트 (7주차 실습)
 - [x] `/mypage` 페이지 만들기 — `src/app/mypage/page.tsx`
 - [x] 링크 추가 폼 만들기 (제목, 주소, 버튼)
-- [x] 추가 버튼 클릭 시 목록에 추가 — (M4 당시) `useMyPageStore.addLink` → (M5) `useLinksStore.addLink`
+- [x] 추가 버튼 클릭 시 목록에 추가 — (M4 당시) `useMyPageStore.addLink` → (M5) `useLinksStore.addLink` → (2026-11-05) `useLinkActions().addLink` (TanStack Query)
 - [x] 입력 칸 자동으로 비우기 — 성공 시 `reset()` + 제목 칸 포커스
 - [x] 빈 칸 검증 추가하기 — `quickLinkSchema` (Zod) + React Hook Form
 - [x] 테스트: 링크 추가 → 새로고침 → 사라짐 확인 — 메모리 상태라 새로고침 시 목록 0개 (브라우저에서 확인)

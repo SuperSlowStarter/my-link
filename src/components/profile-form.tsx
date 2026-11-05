@@ -8,7 +8,7 @@ import { AtSign, Check, Copy, ExternalLink, Loader2, Save } from "lucide-react";
 import { profileBasicsSchema, type ProfileBasicsValues } from "@/lib/schemas";
 import type { UserProfile } from "@/lib/profile-repository";
 import { useAuthStore } from "@/store/auth-store";
-import { useProfileStore } from "@/store/profile-store";
+import { useSaveProfileBasics } from "@/hooks/use-profile";
 import { Button } from "@/components/ui/button";
 import { FieldError } from "@/components/ui/field-error";
 import { Input } from "@/components/ui/input";
@@ -27,7 +27,7 @@ const joinedFormat = new Intl.DateTimeFormat("ko-KR", { year: "numeric", month: 
  */
 export function ProfileForm({ profile }: { profile: UserProfile }) {
   const email = useAuthStore((state) => state.user?.email ?? "");
-  const saveBasics = useProfileStore((state) => state.saveBasics);
+  const { save: saveBasics } = useSaveProfileBasics();
   const [copied, setCopied] = useState(false);
 
   const {

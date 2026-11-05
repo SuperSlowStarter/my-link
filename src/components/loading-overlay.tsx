@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useIsFetching, useMutationState } from "@tanstack/react-query";
 import { useLoadingStore } from "@/store/loading-store";
 import { LogoMark } from "@/components/site-header";
 
@@ -16,9 +17,23 @@ const MIN_VISIBLE_MS = 400;
  * - z-index: modal(300) 위, toast(500) 아래인 400.
  */
 export function LoadingOverlay() {
+  // 1) TanStack Query: 진행 중인 쓰기(useMutation) 중 meta.loadingLabel이 있는 것
+  const mutationLabels = useMutationState({
+    filters: { status: "pending", predicate: (mutation) => Boolean(mutation.meta?.loadingLabel) },
+    select: (mutation) => mutation.meta?.loadingLabel ?? "",
+  });
+  // 2) TanStack Query: 처음 불러오는 조회(useQuery, 아직 데이터 없음) 중 meta.loadingLabel이 있는 것
+  const initialFetches = useIsFetching({
+    predicate: (query) => query.state.status === "pending" && Boolean(query.meta?.loadingLabel),
+  });
+  // 3) 로그인·로그아웃·프로필 준비 같은 Auth 작업 (loading-store)
   const tasks = useLoadingStore((state) => state.tasks);
-  const busy = tasks.length > 0;
-  const label = tasks[tasks.length - 1]?.label ?? "";
+
+  const busy = mutationLabels.length > 0 || initialFetches > 0 || tasks.length > 0;
+  const label =
+    mutationLabels[mutationLabels.length - 1] ||
+    tasks[tasks.length - 1]?.label ||
+    (initialFetches > 0 ? "불러오는 중" : "");
 
   const [visible, setVisible] = useState(false);
   const [shownLabel, setShownLabel] = useState("");

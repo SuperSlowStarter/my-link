@@ -6,7 +6,6 @@ import {
   doc,
   getDoc,
   getDocs,
-  onSnapshot,
   orderBy,
   query,
   serverTimestamp,
@@ -15,13 +14,12 @@ import {
   type DocumentData,
   type FieldValue,
   type Timestamp,
-  type Unsubscribe,
-} from "firebase/firestore";
+} from "firebase/firestore/lite";
 import { LINK_ICON_OPTIONS, type LinkIconType, type LinkItem } from "@/data/links";
 import { db, isFirebaseConfigured } from "@/lib/firebase";
 
 /**
- * Firestore 링크 저장소 — 로그인한 사용자별 개인 링크
+ * Firestore 링크 저장소 — 로그인한 사용자별 개인 링크 (실시간 구독 없이 조회·쓰기만)
  * 경로: users/{uid}/links/{linkId}
  * 모든 함수는 Firebase Auth의 user.uid를 받는다. 로그인 전에는 호출하지 않는다.
  */
@@ -99,30 +97,13 @@ export function sortByOrder(links: StoredLink[]): StoredLink[] {
 }
 
 /* ------------------------------------------------------------------ */
-/* Read — 실시간 구독 (createdAt 최신순)                                 */
+/* Read — 한 번 조회 (createdAt 최신순, TanStack Query가 캐시)            */
 /* ------------------------------------------------------------------ */
-/**
- * users/{uid}/links 를 createdAt 내림차순(최신순)으로 불러오고,
- * 이후 추가·수정·삭제가 생길 때마다 onChange가 다시 호출된다.
- * 방금 추가한 문서는 서버 시각이 정해지기 전에도 추정 시각으로 맨 위에 온다.
- */
-export function subscribeLinks(
-  uid: string,
-  onChange: (links: StoredLink[]) => void,
-  onError: (error: unknown) => void
-): Unsubscribe {
+/** users/{uid}/links 를 createdAt 내림차순(최신순)으로 한 번 불러온다 */
+export async function fetchLinks(uid: string): Promise<StoredLink[]> {
   assertReady(uid);
-  return onSnapshot(
-    query(linksCollection(uid), orderBy("createdAt", "desc")),
-    (snapshot) => {
-      onChange(
-        snapshot.docs.map((snap) =>
-          fromDocument(snap.id, snap.data({ serverTimestamps: "estimate" }))
-        )
-      );
-    },
-    onError
-  );
+  const snapshot = await getDocs(query(linksCollection(uid), orderBy("createdAt", "desc")));
+  return snapshot.docs.map((snap) => fromDocument(snap.id, snap.data()));
 }
 
 /* ------------------------------------------------------------------ */

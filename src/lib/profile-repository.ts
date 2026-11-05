@@ -6,14 +6,12 @@ import {
   limit,
   query,
   where,
-  onSnapshot,
   runTransaction,
   serverTimestamp,
   updateDoc,
   type DocumentData,
   type Timestamp,
-  type Unsubscribe,
-} from "firebase/firestore";
+} from "firebase/firestore/lite";
 import type { User } from "firebase/auth";
 import { DEFAULT_SHOWREEL, type ShowreelConfig } from "@/data/links";
 import { db, isFirebaseConfigured } from "@/lib/firebase";
@@ -186,16 +184,10 @@ export async function ensureProfile(user: User): Promise<void> {
 /* ------------------------------------------------------------------ */
 /* 읽기                                                                */
 /* ------------------------------------------------------------------ */
-export function subscribeProfile(
-  uid: string,
-  onChange: (profile: UserProfile | null) => void,
-  onError: (error: unknown) => void
-): Unsubscribe {
-  return onSnapshot(
-    profileDoc(uid),
-    (snap) => onChange(snap.exists() ? fromDocument(uid, snap.data({ serverTimestamps: "estimate" })) : null),
-    onError
-  );
+/** users/{uid}/profile/main 을 한 번 불러온다 (없으면 null) */
+export async function fetchProfile(uid: string): Promise<UserProfile | null> {
+  const snap = await getDoc(profileDoc(uid));
+  return snap.exists() ? fromDocument(uid, snap.data()) : null;
 }
 
 /** username → uid (없으면 null) */

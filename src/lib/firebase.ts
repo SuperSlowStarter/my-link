@@ -1,6 +1,6 @@
 import { getApp, getApps, initializeApp, type FirebaseApp, type FirebaseOptions } from "firebase/app";
 import { getAuth, type Auth } from "firebase/auth";
-import { getFirestore, type Firestore } from "firebase/firestore";
+import { getFirestore, type Firestore } from "firebase/firestore/lite";
 
 /**
  * Firebase 초기화 (프로젝트: my-dae-link)
@@ -34,7 +34,10 @@ export const firebaseApp: FirebaseApp = getApps().length
   ? getApp()
   : initializeApp(firebaseConfig);
 
-/** Cloud Firestore — Phase 2 프로필·링크 저장소 */
+/**
+ * Cloud Firestore — Firestore Lite SDK (firebase/firestore/lite)
+ * 실시간 리스너(onSnapshot·Listen 스트림) 없이 REST 요청으로만 읽고 쓴다. 조회 캐시는 TanStack Query가 맡는다.
+ */
 export const db: Firestore = getFirestore(firebaseApp);
 
 /** Firebase Auth — Phase 2 관리자 로그인(편집 권한 보호). 브라우저에서만 호출한다. */

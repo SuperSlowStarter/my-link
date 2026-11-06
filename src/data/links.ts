@@ -18,26 +18,6 @@ export interface LinkItem {
   variant: "primary" | "glass";
 }
 
-export interface ShowreelConfig {
-  enabled: boolean;
-  title: string;
-  subtitle: string;
-  youtubeUrl: string;
-  badge?: string;
-}
-
-export interface ProfileData {
-  name: string;
-  role: string;
-  bio: string;
-  avatarText: string;
-  avatarImageUrl?: string;
-  fpsBadge: string;
-  skills: string[];
-  showreel: ShowreelConfig;
-  links: LinkItem[];
-}
-
 export const STORAGE_KEY = "mylink_state_v1";
 
 export const LINK_ICON_OPTIONS: {
@@ -45,32 +25,15 @@ export const LINK_ICON_OPTIONS: {
   label: string;
   accentColor: string;
 }[] = [
-  { value: "play", label: "Play (쇼릴/영상)", accentColor: "#FFFFFF" },
-  { value: "youtube", label: "YouTube (유튜브)", accentColor: "#FF1493" },
-  { value: "instagram", label: "Instagram (인스타그램)", accentColor: "#8B00FF" },
-  { value: "film", label: "Film (포트폴리오/아카이브)", accentColor: "#0080FF" },
-  { value: "sparkles", label: "Sparkles (클래스/하이라이트)", accentColor: "#FF1493" },
-  { value: "globe", label: "Globe (웹사이트/스토어)", accentColor: "#20B2AA" },
-  { value: "link", label: "Link (일반 외부 링크)", accentColor: "#0080FF" },
-  { value: "mail", label: "Mail (이메일/외주 문의)", accentColor: "#20B2AA" },
+  { value: "play", label: "Play (쇼릴/영상)", accentColor: "#F5ECD1" },
+  { value: "youtube", label: "YouTube (유튜브)", accentColor: "#E1CAA6" },
+  { value: "instagram", label: "Instagram (인스타그램)", accentColor: "#F5ECD1" },
+  { value: "film", label: "Film (포트폴리오/아카이브)", accentColor: "#E1CAA6" },
+  { value: "sparkles", label: "Sparkles (클래스/하이라이트)", accentColor: "#E1CAA6" },
+  { value: "globe", label: "Globe (웹사이트/스토어)", accentColor: "#74838A" },
+  { value: "link", label: "Link (일반 외부 링크)", accentColor: "#E1CAA6" },
+  { value: "mail", label: "Mail (이메일/외주 문의)", accentColor: "#74838A" },
 ];
-
-export const DEFAULT_SKILLS: string[] = [
-  "After Effects",
-  "Blender",
-  "3ds Max",
-  "Photoshop",
-  "Illustrator",
-  "Premiere Pro",
-];
-
-export const DEFAULT_SHOWREEL: ShowreelConfig = {
-  enabled: true,
-  title: "2026 Motion Showreel",
-  subtitle: "2D · Fake 3D · Kinetic Typography 대표 작업물",
-  youtubeUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-  badge: "FEATURED",
-};
 
 /**
  * 모션그래픽 디자이너 '이대건' 페르소나 기반 링크 목록 더미(시드) 데이터
@@ -126,32 +89,3 @@ export const DUMMY_LINKS: LinkItem[] = [
     variant: "glass",
   },
 ];
-
-export const DEFAULT_PROFILE_DATA: ProfileData = {
-  name: "이대건",
-  role: "Motion Graphic Designer",
-  bio: "움직임으로 이야기를 전하는 모션그래픽 디자이너입니다.\n브랜드의 메시지를 감각적인 영상으로 만듭니다.",
-  avatarText: "이",
-  avatarImageUrl: "",
-  fpsBadge: "60FPS",
-  skills: DEFAULT_SKILLS,
-  showreel: DEFAULT_SHOWREEL,
-  links: DUMMY_LINKS,
-};
-
-/**
- * YouTube URL에서 11자리 비디오 ID를 추출합니다.
- */
-export function extractYoutubeVideoId(url: string): string | null {
-  if (!url) return null;
-  const trimmed = url.trim();
-  // 11자리 ID 자체만 입력한 경우
-  if (/^[a-zA-Z0-9_-]{11}$/.test(trimmed)) {
-    return trimmed;
-  }
-  const regExp =
-    /(?:youtube\.com\/(?:watch\?.*v=|embed\/|shorts\/|v\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
-  const match = trimmed.match(regExp);
-  return match ? match[1] : null;
-}
-

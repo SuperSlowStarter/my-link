@@ -3,10 +3,28 @@ version: "alpha"
 name: "Glassmorphism"
 description: "Glassmorphic interface with frosted glass effect. Ideal for overlays, modal dialogs, card components, premium interfaces. AI-ready template."
 colors:
-  primary: "#0080FF"
-  secondary: "#8B00FF"
-  tertiary: "#FF1493"
-  neutral: "#000000"
+  # ColorPallete.jpeg 기반 (Crow / Bleached Cedar / Winter White / Diplomatic / Hearth / Bay Wharf)
+  primary: "#E1CAA6"     # Hearth — 핵심 액션, 대표 쇼릴, 포커스 링
+  secondary: "#37435F"   # Diplomatic — 보조 강조, 배지, 배경 광원
+  tertiary: "#74838A"    # Bay Wharf — 보조 아이콘, NEW 배지, 배경 광원
+  neutral: "#1E0912"     # Crow — 기본 배경
+  surface: "#2B2034"     # Bleached Cedar — 모달·아이콘 박스 등 깊은 표면
+  text: "#F5ECD1"        # Winter White — 본문 텍스트
+  # 버튼 등 primary 색 위에 올라가는 글자색. 순수 검정 대신 Crow를 쓰며, 이 값만 바꾸면 전체에 반영된다.
+  on-primary: "#1E0912"
+
+rounded:
+  xs: 4px    # 아이콘 박스, 작은 칩
+  sm: 6px    # 작은 버튼, 썸네일
+  md: 0.5rem # 버튼, 링크 아이템, 입력창
+  lg: 16px   # 모달(Dialog)
+  xl: 20px   # 메인 프로필 카드
+
+motion:
+  # After Effects 속도 그래프 기준 비대칭 베지어 (괄호 안은 시작/끝 영향력)
+  ease-punch: "cubic-bezier(0.10, 0, 0.05, 1)"   # 확 치고 길게 감속 (10% / 95%)
+  ease-swoosh: "cubic-bezier(0.85, 0, 0.15, 1)"  # 천천히 → 슉 → 천천히 (85% / 85%)
+  ease-snap: "cubic-bezier(0.90, 0, 0.90, 1)"    # 길게 모았다가 탁 (90% / 10%)
 
 typography:
   h1:
@@ -24,7 +42,7 @@ typography:
 components:
   button-primary:
     backgroundColor: "{colors.primary}"
-    textColor: "{colors.neutral}"
+    textColor: "{colors.on-primary}"
     padding: 12px
 ---
 
@@ -47,11 +65,15 @@ What made glassmorphism actually viable for the web was backdrop-filter landing 
 
 ## Colors
 
-- **** (rgba(255,255,255,0.1-0.3)) — Primary surface or dominant color
-- **Electric Blue** (#0080FF) — Secondary accent
-- **Neon Purple** (#8B00FF) — Accent color, emphasis elements
-- **Vivid Pink** (#FF1493) — Primary text color
-- **Teal** (#20B2AA) — Secondary accent
+Palette source: `ColorPallete.jpeg` in the project root. Tailwind tokens: `crow`, `cedar`, `winter`, `diplomatic`, `hearth`, `wharf` (e.g. `bg-hearth`, `text-winter/80`).
+
+- **Crow** (#1E0912) — Page background, text on Hearth-filled elements (`on-primary`). Replaces pure black.
+- **Bleached Cedar** (#2B2034) — Deep surfaces: modal, icon boxes, background light pool.
+- **Winter White** (#F5ECD1) — Body and heading text; glass surface tint (rgba(245,236,209,0.08-0.2)).
+- **Diplomatic** (#37435F) — Secondary accent: FEATURED badge, background light pool.
+- **Hearth** (#E1CAA6) — Primary accent: main buttons, showreel block, role label, focus ring. Hover: #CFBA99 (8% darker).
+- **Bay Wharf** (#74838A) — Tertiary accent: NEW badge (Crow text), mail/globe icons, background light pool.
+- **Danger** (#D98C7A) — The only non-palette color; delete buttons and error text only.
 
 
 ## Typography
@@ -82,12 +104,20 @@ Scale:
 
 ## Elevation & Depth
 
-Backdrop blur (10-20px), subtle border (1px solid rgba white 0.2), light reflection, Z-depth
+Backdrop blur (10-20px), subtle border (1px solid Winter White at 8-20%), Z-depth.
 
-- **Physics:** Ease-out curves, 200-300ms duration. Smooth and predictable.
-- **Entry animations:** Fade + translate-Y (16px → 0) over 420ms ease-out. Staggered cascades for lists: 80ms between items.
-- **Hover states:** Subtle color shift + shadow adjustment over 200ms.
-- **Page transitions:** Fade only (200ms).
+- **Rim light (base card only):** Only the main glass card (`Card`, the base block) has `.glass-rim`. Buttons, badges, link items, showreel, avatar and modal do not.
+  - Shape: light gathers along the card edge via `inset box-shadow`, following the border radius evenly (classic glassmorphism edge catch). No diamond or band shapes, no stroke line (the card border is transparent).
+  - Static glow (`::before`): a very faint top-lit edge glow, always visible.
+  - Cursor glow (`::after`): the same edge glow revealed through a radial mask centered on the cursor (`--rim-size` 360px). Edges near the mouse are brightest and fade out with distance. Driven by `src/lib/use-rim-light.ts`. Disabled on touch devices.
+- **No light around the cursor:** no spotlight blob in empty space, no full-surface sheen. Background light pools are static.
+
+- **Physics:** Asymmetric high-influence curves (see `motion` tokens), 200-300ms duration. Avoid the default symmetric Easy Ease (33%) and plain `ease-out`.
+- **Entry animations:** Fade + translate-Y (16px → 0) over 420ms `ease-punch`. Staggered cascades for lists: 80ms between items.
+- **Hover states:** Subtle color shift + shadow adjustment over 200ms `ease-punch`.
+- **Expand / collapse (showreel player, modal open):** `ease-swoosh`.
+- **Emphasis pop (badge, saved confirmation):** `ease-snap`.
+- **Page transitions:** Fade only (200ms `ease-swoosh`).
 - **Performance:** Only transform and opacity animated. No layout-triggering properties.
 
 
@@ -95,16 +125,19 @@ Backdrop blur (10-20px), subtle border (1px solid rgba white 0.2), light reflect
 
 ## Shapes
 
-Base corner radius: 4px. See rounded tokens in front matter for the full scale.
+Base corner radius: 4px. Radius grows with element size: 4px (icon box) → 6px (small button) → 0.5rem (button, link item) → 16px (modal) → 20px (main card). See `rounded` tokens in front matter.
 
 ## Components
 
-- **Primary Button:** Subtly rounded (0.5rem) shape. Accent color fill. Hover: 8% darken + subtle lift shadow. Active: -1px translate tactile press. Font weight 600. No outer glows.
+- **Primary Button:** Subtly rounded (0.5rem) shape. Accent color fill. Text color: `on-primary` (Crow #1E0912, adjustable token; never pure black). Hover: 8% darken + subtle lift shadow. Active: -1px translate tactile press. Font weight 600. No outer glows.
 - **Secondary / Ghost Button:** Outline variant. 1.5px border in muted color. Text in primary color. Hover: subtle background fill.
-- **Cards:** Subtly rounded (0.5rem) corners. Surface background. Subtle shadow (0 2px 12px rgba(0,0,0,0.06)). 1px border stroke.
+- **Cards:**
+  - Main profile card: 20px corners, glass surface, blur 16px + saturate 180%, 1px border `rgba(255,255,255,0.08)`, shadow `0 12px 40px rgba(8,11,18,0.35)`.
+  - Inner link items: 0.5rem corners, 1px border, shadow `0 2px 12px rgba(0,0,0,0.08)`.
 - **Inputs:** Label above input. 1px border stroke. Focus ring: 2px accent color offset 2px. Error text below in semantic red. No floating labels.
 - **Navigation:** Primary surface background. Active item: accent color indicator. Font weight 500 when active.
-- **Skeletons:** Shimmer animation matching component dimensions. No circular spinners.
+- **Skeletons:** Pulse placeholders matching component dimensions for content that is still loading inside a section.
+- **Loading overlay (updates / refreshes):** While data is being saved, updated or refreshed, a full-page overlay covers the screen: background blurred (`backdrop-blur-md` over `bg-crow/45`), centered glass panel with the logo mark and a Hearth arc spinning around it (`ease-swoosh` per turn), the logo breathing (`ease-snap`), and a short label with animated dots (e.g. "링크 저장 중..."). Shows only if the task takes longer than 250ms and stays at least 400ms. z-index 400 (above modal 300, below toast 500). Reduced motion: no spin, slow fade only. This overlay is the single exception to the "no circular spinners" rule.
 - **Empty States:** Icon-based composition with descriptive text and action button.
 
 

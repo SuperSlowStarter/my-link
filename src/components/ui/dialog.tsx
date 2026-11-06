@@ -90,17 +90,14 @@ function Dialog({
       ref={dialogRef}
       closedby="any"
       aria-labelledby={titleId}
-      data-glass-rim=""
       style={
         {
           WebkitBackdropFilter: "blur(20px) saturate(180%)",
-          "--rim-size": "220px",
-          "--sheen-size": "240px",
           ...style,
         } as CSSProperties
       }
       className={cn(
-        "glass-rim fixed top-1/2 left-1/2 z-[300] m-0 w-[calc(100%-2rem)] max-w-[420px] -translate-x-1/2 -translate-y-1/2 rounded-[16px] border border-white/10 bg-[rgba(13,17,26,0.88)] p-6 text-left text-foreground shadow-[0_16px_48px_rgba(0,0,0,0.5)] backdrop-blur-[20px] backdrop-saturate-[180%] outline-none open:animate-glass-entry",
+        "fixed top-1/2 left-1/2 z-[300] m-0 w-[calc(100%-2rem)] max-w-[420px] -translate-x-1/2 -translate-y-1/2 rounded-[16px] border border-winter/10 bg-popover p-6 text-left text-foreground shadow-[0_16px_48px_rgba(0,0,0,0.5)] backdrop-blur-[20px] backdrop-saturate-[180%] outline-none open:animate-expand",
         className
       )}
       {...props}
@@ -122,7 +119,7 @@ function DialogHeader({
   return (
     <div
       className={cn(
-        "mb-4 flex items-start justify-between gap-3 border-b border-white/15 pb-3",
+        "mb-4 flex items-start justify-between gap-3 border-b border-winter/15 pb-3",
         className
       )}
     >
@@ -132,7 +129,7 @@ function DialogHeader({
           type="button"
           onClick={onClose}
           aria-label="모달 닫기"
-          className="inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-[6px] border border-white/15 bg-white/10 text-white/80 transition-colors hover:bg-white/20 hover:text-white focus-visible:ring-2 focus-visible:ring-[#0080FF] focus-visible:outline-none"
+          className="inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-[6px] border border-winter/15 bg-winter/10 text-winter/80 transition-colors hover:bg-winter/20 hover:text-winter focus-visible:ring-2 focus-visible:ring-hearth focus-visible:outline-none"
         >
           <X className="size-4" />
         </button>

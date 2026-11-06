@@ -485,6 +485,35 @@ export interface StoredLink extends LinkItem {
 - **모양:** 기본 스타일을 끄고(`unstyled`) 짙은 유리 패널로 통일 — `bg-popover` + `backdrop-blur-xl`, 모서리 14px, 위쪽 은은한 inset 빛. 제목 13px 굵게, 설명은 모노 11px.
 - **아이콘:** 성공 Hearth 체크, 오류 Danger 느낌표, 안내 Bay Wharf, 진행 Hearth 회전.
 - **모션:** Sonner 기본 전환 곡선을 `ease-punch`(확 치고 길게 감속)로 교체.
+
+### 5.8 공유 이미지 (동적 OG 이미지, 2026-11-06)
+- **방식:** Next.js 파일 기반 메타데이터 `opengraph-image.tsx` + `next/og`의 `ImageResponse` (1200×630 PNG). `og:image`와 `twitter:image` 태그가 자동으로 붙는다.
+- **일반 경로** (`src/app/opengraph-image.tsx`): `/`, `/mypage`, `/stats` 등 동적이 아닌 모든 페이지가 물려받는다. 소개 페이지 첫 화면과 같은 제목("움직이는 작업을, 한 장의 링크로.")·문구·태그 + 샘플 미리보기 카드(@yourname).
+- **동적 경로** (`src/app/[username]/opengraph-image.tsx`): 공개 페이지와 같은 규칙(username → displayName)으로 사람을 찾아, 왼쪽에 프로필 사진·이름·@아이디·소개·링크 개수, 오른쪽 유리 카드에 메인 카드 순서 그대로의 앞쪽 링크 3개(강조 링크는 Hearth 채움, 배지 표시)를 그린다. 링크가 없으면 "곧 링크가 채워져요", 사람을 못 찾으면 일반 이미지로 대신한다.
+- **조회:** 페이지와 OG 이미지가 `src/lib/public-profile-server.ts`(Firestore REST, 누구나 읽기 규칙)를 같이 쓴다. 데이터 구조·보안 규칙 변경 없음.
+- **디자인 통일:** 공용 부품 `src/lib/og/kit.tsx` — Crow 바탕 + 소개 페이지 배경과 같은 자리의 광원(Diplomatic·Cedar·Wharf·Hearth), Hearth 로고, 유리 카드(반투명 채움 + 얇은 Winter 테두리 + 위쪽 inset 빛, 뒤쪽 유리판 -6° 기울기), lucide 아이콘.
+- **글꼴:** 한국어는 Noto Sans KR(500·700·800), 아이디·라벨은 Geist Mono. Google Fonts에서 이미지에 들어가는 글자만 받는다(`text=` 서브셋).
+- **Satori 제약 메모:** CSS `radial-gradient`는 상자 경계가 드러나서 배경 광원은 SVG 그라디언트 이미지로 그린다. 회전된 상자 안의 아이콘이 잘리므로 앞 카드는 회전하지 않는다. Tailwind className·blur·backdrop-filter는 쓸 수 없다.
+- **주소:** 절대 주소는 `src/lib/site.ts`의 `SITE_URL`(§5.9)을 metadataBase로 쓴다.
+
+### 5.9 검색 최적화 메타데이터 (SEO, 2026-11-06)
+- **공통 (`src/app/layout.tsx`, `src/lib/site.ts`):** `metadataBase`, 제목 템플릿 `%s | MyLink`, 설명·키워드·applicationName, `robots: index, follow`(Google 큰 이미지 미리보기 허용), OG(`ko_KR`, siteName)·Twitter(`summary_large_image`), `viewport.themeColor` = Crow `#1e0912`.
+- **사이트 주소 `SITE_URL`:** `NEXT_PUBLIC_SITE_URL`(커스텀 도메인을 붙이면 Vercel 환경 변수에 넣기) → `VERCEL_PROJECT_PRODUCTION_URL` → `http://localhost:3000`. Preview 배포도 canonical은 Production 주소를 가리킨다.
+- **페이지별:**
+
+  | 경로 | 제목 | 검색 노출 | canonical | 기타 |
+  | --- | --- | --- | --- | --- |
+  | `/` | MyLink — 모션 디자이너를 위한 링크 허브 | 허용 | `/` | JSON-LD `WebSite` |
+  | `/{username}` | `이름 (@username) \| MyLink` | 허용 | `/{username}` (displayName 주소로 들어와도 username 주소로 통일) | 설명 = 소개글(없으면 자동 문구), OG `profile`, JSON-LD `ProfilePage` + `Person` |
+  | 없는 `/{slug}` | 페이지를 찾을 수 없어요 | 제외 (noindex) | — | |
+  | `/mypage` | 내 링크 관리 | 제외 (noindex, nofollow) | `/mypage` | 로그인 전용 |
+  | `/stats` | 통계 대시보드 | 제외 (noindex, nofollow) | `/stats` | 로그인 전용 |
+  | 404 | 페이지를 찾을 수 없어요 | 제외 (Next.js 자동) | — | |
+
+- **`/robots.txt` (`src/app/robots.ts`):** 전체 허용, `/mypage`·`/stats` 제외, sitemap 주소 안내.
+- **`/sitemap.xml` (`src/app/sitemap.ts`):** 홈 + `usernames` 컬렉션의 모든 공개 프로필 주소(문서 updateTime = lastmod). 데이터 구조·보안 규칙 변경 없음(이미 누구나 읽기).
+- **홈 화면 분리:** `app/page.tsx`는 메타데이터를 내보내는 서버 파일, 화면은 `components/home-page.tsx`(클라이언트).
+- **중복 조회 방지:** 공개 프로필 조회(`resolvePublicSlug`, `getPublicProfileSummary`)는 React `cache`로 감싸, 한 요청 안의 generateMetadata·페이지·JSON-LD가 Firestore를 한 번만 부른다.
 ---
 
 ## 6. 사용자 시나리오 (User Scenarios)
@@ -594,6 +623,8 @@ flowchart TD
 
 - **디자인 원칙:** 기능 카드는 크기가 다른 벤토 배치(같은 폭 3단 금지). 첫 화면 요소는 80ms 간격으로 차례로 등장(`ease-punch`), 미리보기 카드는 3.6초 주기로 천천히 떠오르고 가라앉음(`ease-swoosh` 왕복, 동작 줄이기 설정 시 정지). 미리보기 카드에만 커서 반응 림라이트.
 - **모바일:** 첫 화면이 세로로 쌓이고(소개 → 미리보기 카드), 기능 카드는 한 줄씩.
+- **글 줄바꿈 (2026-11-06):** 소개 페이지 전체를 어절 단위로 줄바꿈(`break-keep`)해서 "유리처/럼" 같은 단어 중간 끊김을 없앴다. 마무리 안내 문장은 `text-balance`로 두 줄 길이를 맞춰 "요."만 홀로 남지 않게 했다.
+- **큰 기능 카드 (2026-11-06):** 데스크톱에서 "흩어진 채널을 한 장에" 카드가 오른쪽 카드 두 장 높이로 늘어나므로, 채널 칩을 카드 바닥에 붙여 아래쪽이 비어 보이지 않게 했다.
 
 ### 7.1 내 링크 페이지 (홈 `/` — 로그인 후, 공개 페이지와 같은 카드)
 

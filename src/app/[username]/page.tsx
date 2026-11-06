@@ -1,6 +1,8 @@
+import type { Metadata } from "next";
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
-import { isValidUsername } from "@/lib/username";
+import { getPublicProfileSummary, resolvePublicSlug, safeDecode } from "@/lib/public-profile-server";
+import { SITE_NAME, SITE_URL, socialMetadata } from "@/lib/site";
 import { PublicProfilePage, PublicProfileSkeleton } from "@/components/public-profile";
 
 /**
@@ -11,10 +13,54 @@ import { PublicProfilePage, PublicProfileSkeleton } from "@/components/public-pr
  * 4. 찾은 userId로 users/{userId}/profile/main, users/{userId}/links 를 조회해 보여준다 (PublicProfilePage)
  * 5. 둘 다 없으면 404 (app/not-found.tsx)
  *
+ * 조회 함수는 OG 이미지(opengraph-image.tsx)와 같이 쓰려고 lib/public-profile-server.ts 로 옮겼다.
  * 폴더 이름은 [username] 하나로 둔다 (같은 자리에 동적 폴더 두 개는 둘 수 없음).
  * cacheComponents 사용 중이라 동적 params는 Suspense 안에서 읽는다 (Next.js 16 동적 라우트 가이드).
  */
-export default function UsernamePage({ params }: { params: Promise<{ username: string }> }) {
+type Props = { params: Promise<{ username: string }> };
+
+/** 프로필 → 검색 결과 제목·설명 (페이지 · JSON-LD 가 같은 문구를 쓴다) */
+function describeProfile(handle: string, profile: { displayName: string; bio: string; username: string; linkCount: number }) {
+  const name = profile.displayName || handle;
+  const username = profile.username || handle;
+  const title = name === username ? `@${username}` : `${name} (@${username})`;
+  const description =
+    profile.bio.trim() ||
+    `${name}님의 포트폴리오와 작업 채널을 한곳에 모은 링크 페이지${profile.linkCount > 0 ? ` · 링크 ${profile.linkCount}개` : ""}.`;
+  return { name, username, title, description: description.slice(0, 160) };
+}
+
+/**
+ * SEO 메타데이터: 사람 이름·소개로 제목과 설명을 만든다.
+ * - canonical은 username 주소(/cleangabb)로 통일 — displayName 주소(/대건)로 들어와도 같은 페이지로 본다
+ * - 못 찾으면 검색 제외 (페이지는 404)
+ * - params를 읽으므로 요청 시점에 만들어진다 (페이지도 Suspense로 요청 시점 렌더 → Cache Components 규칙 충족)
+ */
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { username: raw } = await params;
+  const found = await resolvePublicSlug(raw).catch(() => null);
+  const profile = found ? await getPublicProfileSummary(found.uid).catch(() => null) : null;
+
+  if (!found || !profile) {
+    return {
+      title: "페이지를 찾을 수 없어요",
+      description: `MyLink에 "${safeDecode(raw).slice(0, 30)}" 페이지가 없어요.`,
+      robots: { index: false, follow: false },
+    };
+  }
+
+  const { title, description, username } = describeProfile(found.handle, profile);
+  const path = `/${encodeURIComponent(username)}`;
+  return {
+    title,
+    description,
+    alternates: { canonical: path },
+    authors: [{ name: profile.displayName || username, url: path }],
+    ...socialMetadata({ title: `${title} | ${SITE_NAME}`, description, path, type: "profile", extra: { username } }),
+  };
+}
+
+export default function UsernamePage({ params }: Props) {
   return (
     <Suspense fallback={<PublicProfileSkeleton />}>
       <ResolveProfile params={params} />
@@ -22,95 +68,53 @@ export default function UsernamePage({ params }: { params: Promise<{ username: s
   );
 }
 
-async function ResolveProfile({ params }: { params: Promise<{ username: string }> }) {
+async function ResolveProfile({ params }: Props) {
   const { username: raw } = await params;
-  const slug = safeDecode(raw).trim();
-  if (!slug) notFound();
+  const found = await resolvePublicSlug(raw);
+  if (!found) notFound();
+  const profile = await getPublicProfileSummary(found.uid).catch(() => null);
 
-  // 1) username (영문 소문자 규칙에 맞을 때만)
-  const asUsername = slug.toLowerCase();
-  if (isValidUsername(asUsername)) {
-    const uid = await findUidByUsernameOnServer(asUsername);
-    if (uid) return <PublicProfilePage uid={uid} username={asUsername} />;
-  }
-
-  // 2) displayName (표시 이름 규칙: 1~30자, 대소문자·띄어쓰기까지 정확히 같은 이름)
-  if (slug.length <= 30) {
-    const uid = await findUidByDisplayNameOnServer(slug);
-    if (uid) return <PublicProfilePage uid={uid} username={slug} />;
-  }
-
-  notFound();
-}
-
-/** 잘못된 %인코딩이 와도 죽지 않게 */
-function safeDecode(value: string) {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
-  }
-}
-
-const firestoreBase = () => {
-  const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
-  const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
-  if (!projectId || !apiKey) return null;
-  return { root: `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents`, apiKey };
-};
-
-/**
- * 서버에서 usernames/{username} 문서를 읽는다 (Firestore REST, 누구나 읽기 규칙).
- * 문서가 없으면 null.
- */
-async function findUidByUsernameOnServer(username: string): Promise<string | null> {
-  const base = firestoreBase();
-  if (!base) return null;
-
-  const response = await fetch(`${base.root}/usernames/${encodeURIComponent(username)}?key=${base.apiKey}`, {
-    cache: "no-store",
-  });
-  if (response.status === 404) return null;
-  if (!response.ok) throw new Error(`username 조회 실패 (${response.status})`);
-
-  const json = (await response.json()) as { fields?: { uid?: { stringValue?: string } } };
-  return json.fields?.uid?.stringValue ?? null;
+  return (
+    <>
+      {profile ? <ProfileJsonLd handle={found.handle} profile={profile} /> : null}
+      <PublicProfilePage uid={found.uid} username={found.handle} />
+    </>
+  );
 }
 
 /**
- * 서버에서 displayName이 같은 프로필을 찾는다 (Firestore REST runQuery, 컬렉션 그룹 쿼리).
- * - 모든 사용자의 users/{uid}/profile/main 을 한 번에 찾는다: from: { collectionId: "profile", allDescendants: true }
- * - 필요한 설정은 displayName 중복 확인과 같다: profile.displayName 컬렉션 그룹 인덱스 + 규칙 /{path=**}/profile/{docId} 읽기 허용
- * - 저장할 때 중복을 막지만(§3.7) 혹시 둘 이상이면 먼저 나온 사람을 보여준다.
+ * 구조화 데이터 (schema.org ProfilePage + Person) — 검색 엔진이 "이 사람의 프로필 페이지"로 이해하게.
  */
-async function findUidByDisplayNameOnServer(displayName: string): Promise<string | null> {
-  const base = firestoreBase();
-  if (!base) return null;
-
-  const response = await fetch(`${base.root}:runQuery?key=${base.apiKey}`, {
-    method: "POST",
-    cache: "no-store",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      structuredQuery: {
-        from: [{ collectionId: "profile", allDescendants: true }],
-        where: {
-          fieldFilter: { field: { fieldPath: "displayName" }, op: "EQUAL", value: { stringValue: displayName } },
-        },
-        limit: 2,
-      },
-    }),
-  });
-  if (!response.ok) throw new Error(`displayName 조회 실패 (${response.status})`);
-
-  // 결과가 없으면 [{ readTime }] 만 온다
-  const rows = (await response.json()) as { document?: { name?: string } }[];
-  for (const row of rows) {
-    // name: projects/{p}/databases/(default)/documents/users/{uid}/profile/main
-    const path = row.document?.name?.split("/documents/")[1]?.split("/");
-    if (path && path.length === 4 && path[0] === "users" && path[2] === "profile" && path[3] === "main") {
-      return path[1];
-    }
-  }
-  return null;
+function ProfileJsonLd({
+  handle,
+  profile,
+}: {
+  handle: string;
+  profile: NonNullable<Awaited<ReturnType<typeof getPublicProfileSummary>>>;
+}) {
+  const { name, username, description } = describeProfile(handle, profile);
+  const url = `${SITE_URL}/${encodeURIComponent(username)}`;
+  const data = {
+    "@context": "https://schema.org",
+    "@type": "ProfilePage",
+    url,
+    name: `${name} | ${SITE_NAME}`,
+    inLanguage: "ko-KR",
+    mainEntity: {
+      "@type": "Person",
+      name,
+      alternateName: `@${username}`,
+      identifier: username,
+      description,
+      url,
+      ...(profile.photoURL ? { image: profile.photoURL } : {}),
+    },
+  };
+  return (
+    <script
+      type="application/ld+json"
+      // JSON-LD: 공식 가이드 방식 (< 를 이스케이프해 스크립트 주입 방지)
+      dangerouslySetInnerHTML={{ __html: JSON.stringify(data).replace(/</g, "\\u003c") }}
+    />
+  );
 }

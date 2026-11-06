@@ -36,7 +36,8 @@ export function LandingPage() {
       <AmbientBackground />
       <SiteHeader />
 
-      <main className="relative flex-1 overflow-x-hidden">
+      {/* break-keep: 한국어를 어절 단위로 줄바꿈 ("유리처/럼" 같은 끊김 방지) */}
+      <main className="relative flex-1 overflow-x-hidden break-keep">
         <Hero />
         <Features />
         <Steps />
@@ -248,7 +249,8 @@ function Features() {
           body="Vimeo, 유튜브, 인스타그램, 포트폴리오, 외주 문의 메일까지. 아이콘·배지·강조 스타일로 중요한 링크를 먼저 보이게 하고, 순서는 원하는 대로 바꿀 수 있어요."
           large
         >
-          <div className="mt-6 flex flex-wrap gap-2" aria-hidden="true">
+          {/* 오른쪽 카드 두 장 높이만큼 늘어나므로 칩을 바닥에 붙여 빈 공간을 없앤다 */}
+          <div className="mt-6 flex flex-wrap gap-2 lg:mt-auto lg:pt-8" aria-hidden="true">
             {[
               { icon: Play, label: "Vimeo" },
               { icon: Youtube, label: "YouTube" },
@@ -322,7 +324,7 @@ function FeatureCard({
       >
         <Icon className={large ? "h-6 w-6" : "h-5 w-5"} aria-hidden="true" />
       </span>
-      <div className={cn(!horizontal && "mt-5")}>
+      <div className={cn(!horizontal && "mt-5", large && "flex flex-1 flex-col")}>
         <h3 className={cn("font-semibold tracking-tight text-winter", large ? "text-2xl" : "text-[17px]")}>
           {title}
         </h3>
@@ -409,7 +411,7 @@ function ClosingCta() {
           지금, 내 작업에 어울리는
           <br className="sm:hidden" /> 링크 페이지를 만들어 보세요
         </h2>
-        <p className="relative mx-auto mt-4 max-w-[30rem] text-[14px] leading-relaxed text-winter/65">
+        <p className="relative mx-auto mt-4 max-w-[30rem] text-[14px] leading-relaxed text-balance text-winter/65">
           로그인하면 바로 내 링크 페이지가 열려요. 언제든 로그아웃하면 이 화면으로 돌아와요.
         </p>
         <div className="relative mt-8 flex justify-center">
